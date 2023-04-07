@@ -1,22 +1,29 @@
 #include <fcntl.h>
 #include <poll.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 
+/*
+ * Seplos BMS communication protocol 2.0
+ *
+ * Although the SEPLOS document refers to this as a Modbus-ASCII protocol, it isn't
+ * one. They're confusing the Modbus-ASCII _protocol_, which they don't use, with the
+ * RS-485 _transport_, which they use. It seems common to confuse the two. This is more
+ * properly called an ASCII-over-RS-485 protocol. Modbus-ASCII packets start with ':'
+ * rather than the '~' used by SEPLOS, and the packet format is entirely different.
+ */
 struct _Seplos_2_0 {
-  char  start_code;      /* Always "~" */
-  char  version_code[2]; /* Always "2", "0" for protocol version 2.0 */
-  char  address_code[2]; /* ASCII value from "0" to "15" */
-  char  device_code[2];  /* Always "4", "6" for a battery */
+  char  start_code;      /* Always '~' */
+  char  version_code[2]; /* Always '2', '0' for protocol version 2.0 */
+  char  address_code[2]; /* ASCII value from '0' to '15' */
+  char  device_code[2];  /* Always '4', '6' for a battery */
   char  function_code[2];/* Command or reply ID */
   char  length_code[4];  /* Length (12 bits) and length checksum (4 bits). */
-  union _seplos_data {
-    char info[4095 + 4 + 1];/* "info" field, checksum, 0xD to end the packet */
-    char command_group[2];/* BINARY bank dip-switch address: 0 to 0xF */
-  } data;
-  char  guard;            /* The pointer into "data" must never reach this address */
+  char  info[4095 + 4 + 1];/* "info" field, checksum, 0xD to end the packet */
+  const char guard;  /* Pointer to .info must not reach this address */
 };
 typedef struct _Seplos_2_0 Seplos_2_0;
 
@@ -55,6 +62,62 @@ enum _seplos_response {
 int
 main(int argc, char * * argv)
 {
+  static const char hex[] = "0123456789ABCDEF";
+
   Seplos_2_0	s = {};
+
+  char *        i = s.info;
+  const uint8_t address = 0;
+  const uint8_t command = PROTOCOL_VER_GET;
+
+  s.start_code = '~';
+
+  s.version_code[0] = '2'; /* Protocol version 2.0 */
+  s.version_code[1] = '0';
+
+  s.address_code[0] = '0' + ((address >> 4) & 0xf);
+  s.address_code[1] = '0' + (address & 0xf);
+
+  s.device_code[0] = '4'; /* It's a battery */
+  s.device_code[1] = '6';
+
+  s.function_code[0] = '0' + ((command > 4) & 0xf);
+  s.function_code[0] = '0' + (command & 0xf);
+
+  /*
+   * length_code is the ASCII representation of the length of the data in .info and
+   * a checksum
+   */
+  const ptrdiff_t info_length = i - s.info;
+  unsigned int set_bits = 0;
+
+  /* Count the set bits in info_length using Brian Kernighan's algorithm */
+  for (ptrdiff_t n = info_length; n != 0; set_bits++) {
+    n &= (n - 1);
+  }
+  const unsigned int length_id = ((((~set_bits) + 1) << 12) & 0xf000) \
+   | (info_length & 0x0fff);
+
+  s.length_code[0] = hex[(length_id >> 12) & 0xf];
+  s.length_code[1] = hex[(length_id >> 8) & 0xf];
+  s.length_code[2] = hex[(length_id >> 4) & 0xf];
+  s.length_code[3] = hex[length_id & 0xf];
+
+  /* Place a 4-character ASCII checksum at the end of the info data */
+  unsigned int sum = 0;
+
+  for ( const char * b = &(s.start_code); b < i; b++ ) {
+    sum += *b;
+  }
+
+  const unsigned int checksum = (~sum) + 1;
+  *i++ = hex[(checksum >> 12) & 0xf];
+  *i++ = hex[(checksum >> 8) & 0xf];
+  *i++ = hex[(checksum >> 4) & 0xf];
+  *i++ = hex[checksum & 0xf];
+
+  /* Terminate the packet with a carriage-return */
+  *i++ = '\r';
+
   return 0;
 }
