@@ -68,6 +68,7 @@ main(int argc, char * * argv)
 
   char *        i = s.info;
   const uint8_t address = 0;
+  const uint8_t pack = 0;
   const uint8_t command = PROTOCOL_VER_GET;
 
   s.start_code = '~';
@@ -75,15 +76,18 @@ main(int argc, char * * argv)
   s.version_code[0] = '2'; /* Protocol version 2.0 */
   s.version_code[1] = '0';
 
-  s.address_code[0] = '0' + ((address >> 4) & 0xf);
-  s.address_code[1] = '0' + (address & 0xf);
+  s.address_code[0] = hex[(address >> 4) & 0xf];
+  s.address_code[1] = hex[address & 0xf];
 
   s.device_code[0] = '4'; /* It's a battery */
   s.device_code[1] = '6';
 
-  s.function_code[0] = '0' + ((command > 4) & 0xf);
-  s.function_code[0] = '0' + (command & 0xf);
+  s.function_code[0] = hex[(command >> 4) & 0xf];
+  s.function_code[1] = hex[command & 0xf];
 
+  /* Info contains the pack number for some queries */
+  *i++ = hex[(pack >> 4) & 0xf];
+  *i++ = hex[pack & 0xf];
   /*
    * length_code is the ASCII representation of the length of the data in .info and
    * a checksum
