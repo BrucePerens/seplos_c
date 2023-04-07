@@ -93,13 +93,9 @@ main(int argc, char * * argv)
    * a checksum
    */
   const ptrdiff_t info_length = i - s.info;
-  unsigned int set_bits = 0;
 
-  /* Count the set bits in info_length using Brian Kernighan's algorithm */
-  for (ptrdiff_t n = info_length; n != 0; set_bits++) {
-    n &= (n - 1);
-  }
-  const unsigned int length_id = ((((~set_bits) + 1) << 12) & 0xf000) \
+  unsigned int sum = ((info_length >> 8) & 0xf) + ((info_length >> 4) & 0x0f) + (info_length & 0x0f);
+  const unsigned int length_id = ((((~(sum & 0xff)) + 1) << 12) & 0xf000) \
    | (info_length & 0x0fff);
 
   s.length_code[0] = hex[(length_id >> 12) & 0xf];
@@ -108,9 +104,9 @@ main(int argc, char * * argv)
   s.length_code[3] = hex[length_id & 0xf];
 
   /* Place a 4-character ASCII checksum at the end of the info data */
-  unsigned int sum = 0;
+  sum = 0;
 
-  for ( const char * b = &(s.start_code); b < i; b++ ) {
+  for ( const char * b = s.version_code; b < i; b++ ) {
     sum += *b;
   }
 
