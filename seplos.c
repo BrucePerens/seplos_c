@@ -169,7 +169,18 @@ bms_command(
   result = read(fd, response, 18);
   alarm(0);
   signal(SIGALRM, SIG_DFL);
+  /*
+   * FIX: Validate the data here. If the response code isn't NORMAL,
+   * Return the response code and no data.
+   * If the length checksum isn't right, return an
+   * error code.
+   *
+   * If data is valid, and there's more data, read the rest of the packet here.
+   * Then validate the overall checksum.
+   */
   
+     
+
   return 0;
 }
 
