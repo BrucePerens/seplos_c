@@ -119,5 +119,36 @@ main(int argc, char * * argv)
   /* Terminate the packet with a carriage-return */
   *i++ = '\r';
 
+  int fd = open("/dev/ttyUSB0", O_RDWR|O_CLOEXEC|O_NOCTTY, 0);
+  if ( fd < 0 ) {
+    perror("/dev/ttyUSB0");
+    exit(1);
+  }
+  int result = write(fd, &s, info_length + 18);
+  if ( result < 18 ) {
+    perror("/dev/ttyUSB0");
+    exit(1);
+  }
+
+  Seplos_2_0 r = {};
+
+  /*
+   * This needs to be non-blocking, with a timeout, in the final version.
+   * There should always be at least 18 bytes in a properly-formed packet.
+   * at that point, we can parse the packet for correctness, read any additional
+   * data indicated by the length code, and parse the final checksum for correctness.
+   * We also should be draining any spurious characters from the wire before 
+   * we send our command, and, once we send our command, we should drain anything
+   * that's not a properly formatted packet.
+   *
+   * If the battery puts itself into hibernation, it responds for a few seconds
+   * before the controller shuts down. So, we should poll it every second, and
+   * save the last data, and the time of last response, to display to the user
+   * so that they know what happened (presuming there is another power source
+   * to keep the computer running).
+   */
+  result = read(fd, &r, 18);
+  printf("%d\n", result);
+  
   return 0;
 }
