@@ -1,9 +1,11 @@
+#include <assert.h>
 #include <fcntl.h>
 #include <poll.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 
 /*
@@ -29,19 +31,19 @@ typedef struct _Seplos_2_0 Seplos_2_0;
 
 /* The comments are as SEPLOS documented the names of these commands */
 enum _seplos_commands {
-  TELEMETERY_GET =     0x42,	/* Acquisition of telemetering information */
-  TELECOMMAND_GET =    0x44,	/* Acquisition of telecommand information */
-  TELECONTROL_CMD =    0x45,	/* Telecontrol command */
-  TELEREGULATION_GET = 0x47,	/* Acquisition of teleregulation information */
-  TELEREGULATION_SET = 0x49,	/* Setting of teleregulation information */
-  PROTOCOL_VER_GET =   0x4F,	/* Acquisition of the communication protocol version number */
-  VENDOR_GET =         0x51,	/* Acquisition of device vendor information */
-  HISTORY_GET =        0x4B,	/* Acquisition of historical data */
-  TIME_GET =           0x4D,	/* Acquisition time */
-  TIME_SET =           0x4E,	/* Synchronization time */
-  PRODUCTION_CAL =     0xA0,	/* Production calibration */
-  PRODUCTION_SET =     0xA1,	/* Production setting */
-  REGULAR_RECORDING =  0xA2	/* Regular recording */
+  TELEMETERY_GET =     0x42,    /* Acquisition of telemetering information */
+  TELECOMMAND_GET =    0x44,    /* Acquisition of telecommand information */
+  TELECONTROL_CMD =    0x45,    /* Telecontrol command */
+  TELEREGULATION_GET = 0x47,    /* Acquisition of teleregulation information */
+  TELEREGULATION_SET = 0x49,    /* Setting of teleregulation information */
+  PROTOCOL_VER_GET =   0x4F,    /* Acquisition of the communication protocol version number */
+  VENDOR_GET =         0x51,    /* Acquisition of device vendor information */
+  HISTORY_GET =        0x4B,    /* Acquisition of historical data */
+  TIME_GET =           0x4D,    /* Acquisition time */
+  TIME_SET =           0x4E,    /* Synchronization time */
+  PRODUCTION_CAL =     0xA0,    /* Production calibration */
+  PRODUCTION_SET =     0xA1,    /* Production setting */
+  REGULAR_RECORDING =  0xA2     /* Regular recording */
 };
 
 enum _seplos_response {
@@ -49,7 +51,7 @@ enum _seplos_response {
   VERSION_ERROR = 0x01,          /* Protocol version error */
   CHECKSUM_ERROR = 0x02,         /* Checksum error */
   LENGTH_CHECKSUM_ERROR = 0x03,  /* Checksum value in length field error */
-  CID2_ERROR = 0x04,		 /* Second byte or field is incorrect */
+  CID2_ERROR = 0x04,             /* Second byte or field is incorrect */
   COMMAND_FORMAT_ERROR = 0x05,   /* Command format error */
   DATA_INVALID = 0x06,           /* Data invalid (parameter setting) */
   NO_HISTORY = 0x07,             /* No historical data (NVRAM error?) */
@@ -59,49 +61,56 @@ enum _seplos_response {
   PERMISSION_ERROR = 0xe4        /* Permission error */
 };
 
-int
-main(int argc, char * * argv)
-{
-  static const char hex[] = "0123456789ABCDEF";
+static const char hex[] = "0123456789ABCDEF";
 
-  Seplos_2_0	s = {};
+static void
+hex2(uint8_t value, char ascii[2])
+{
+  ascii[0] = hex[(value >> 4) & 0xf];
+  ascii[1] = hex[value & 0xf];
+}
+
+static void
+hex4(unsigned int value, char ascii[2])
+{
+  ascii[0] = hex[(value >> 12) & 0xf];
+  ascii[1] = hex[(value >> 8) & 0xf];
+  ascii[2] = hex[(value >> 4) & 0xf];
+  ascii[3] = hex[value & 0xf];
+}
+
+static unsigned int
+bms_command(
+ int			fd,
+ const unsigned int	address,
+ const unsigned int	command,
+ const char * restrict	info,
+ const unsigned int	info_length,
+ Seplos_2_0 * restrict	response)
+{
+  Seplos_2_0    s = {};
 
   char *        i = s.info;
-  const uint8_t address = 0;
-  const uint8_t pack = 0;
-  const uint8_t command = PROTOCOL_VER_GET;
 
   s.start_code = '~';
 
-  s.version_code[0] = '2'; /* Protocol version 2.0 */
-  s.version_code[1] = '0';
+  hex2(0x20, s.version_code); /* Protocol version 2.0 */
+  hex2(address, s.address_code);
+  hex2(0x46, s.device_code); /* It's a battery */
+  hex2(command, s.function_code);
 
-  s.address_code[0] = hex[(address >> 4) & 0xf];
-  s.address_code[1] = hex[address & 0xf];
+  assert(info_length < 4095);
+  memcpy(i, info, info_length);
+  i += info_length;
 
-  s.device_code[0] = '4'; /* It's a battery */
-  s.device_code[1] = '6';
-
-  s.function_code[0] = hex[(command >> 4) & 0xf];
-  s.function_code[1] = hex[command & 0xf];
-
-  /* Info contains the pack number for some queries */
-  *i++ = hex[(pack >> 4) & 0xf];
-  *i++ = hex[pack & 0xf];
   /*
    * length_code is the ASCII representation of the length of the data in .info and
    * a checksum
    */
-  const ptrdiff_t info_length = i - s.info;
-
   unsigned int sum = ((info_length >> 8) & 0xf) + ((info_length >> 4) & 0x0f) + (info_length & 0x0f);
   const unsigned int length_id = ((((~(sum & 0xff)) + 1) << 12) & 0xf000) \
    | (info_length & 0x0fff);
-
-  s.length_code[0] = hex[(length_id >> 12) & 0xf];
-  s.length_code[1] = hex[(length_id >> 8) & 0xf];
-  s.length_code[2] = hex[(length_id >> 4) & 0xf];
-  s.length_code[3] = hex[length_id & 0xf];
+  hex4(length_id, s.length_code);
 
   /* Place a 4-character ASCII checksum at the end of the info data */
   sum = 0;
@@ -111,26 +120,18 @@ main(int argc, char * * argv)
   }
 
   const unsigned int checksum = (~sum) + 1;
-  *i++ = hex[(checksum >> 12) & 0xf];
-  *i++ = hex[(checksum >> 8) & 0xf];
-  *i++ = hex[(checksum >> 4) & 0xf];
-  *i++ = hex[checksum & 0xf];
+
+  hex4(checksum, i);
+  i += 4;
 
   /* Terminate the packet with a carriage-return */
   *i++ = '\r';
 
-  int fd = open("/dev/ttyUSB0", O_RDWR|O_CLOEXEC|O_NOCTTY, 0);
-  if ( fd < 0 ) {
-    perror("/dev/ttyUSB0");
-    exit(1);
-  }
   int result = write(fd, &s, info_length + 18);
   if ( result < 18 ) {
-    perror("/dev/ttyUSB0");
+    perror("write to SEPLOS BMS");
     exit(1);
   }
-
-  Seplos_2_0 r = {};
 
   /*
    * This needs to be non-blocking, with a timeout, in the final version.
@@ -147,8 +148,46 @@ main(int argc, char * * argv)
    * so that they know what happened (presuming there is another power source
    * to keep the computer running).
    */
-  result = read(fd, &r, 18);
-  printf("%d\n", result);
+  result = read(fd, response, 18);
   
+  return 0;
+}
+
+static float
+seplos_protocol_version(int fd)
+{
+  Seplos_2_0	response = {};
+
+  const unsigned int status = bms_command(
+   fd,
+   0,			/* Address */
+   PROTOCOL_VER_GET,	/* command */
+   "00",		/* pack number */
+   2,			/* length of the above */
+   &response);
+
+  if ( status != 0 ) {
+    fprintf(stderr, "Bad response %x from SEPLOS BMS.\n", status);
+    return -1.0;
+  }
+
+  /* Insist on major version 2, accept any minor version. */
+  if ( response.version_code[0] != '2' ) {
+    fprintf(stderr, "SEPLOS BMS protocol is %s, expected 2.0\n", response.version_code);
+    return -1.0;
+  }
+  return (response.version_code[0] - '0') + ((response.version_code[1] - '0') / 10.0);
+}
+
+int
+main(int argc, char * * argv)
+{
+  int fd = open("/dev/ttyUSB0", O_RDWR|O_CLOEXEC|O_NOCTTY, 0);
+  if ( fd < 0 ) {
+    perror("/dev/ttyUSB0");
+    exit(1);
+  }
+
+  fprintf(stderr, "%1.1f\n", seplos_protocol_version(fd));
   return 0;
 }
