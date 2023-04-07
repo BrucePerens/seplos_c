@@ -1,11 +1,13 @@
 #include <assert.h>
 #include <fcntl.h>
 #include <poll.h>
+#include <signal.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <termios.h>
 #include <unistd.h>
 
 /*
@@ -62,6 +64,11 @@ enum _seplos_response {
 };
 
 static const char hex[] = "0123456789ABCDEF";
+
+static void
+got_alarm()
+{
+}
 
 static void
 hex2(uint8_t value, char ascii[2])
@@ -127,14 +134,16 @@ bms_command(
   /* Terminate the packet with a carriage-return */
   *i++ = '\r';
 
+  tcflush(fd, TCIOFLUSH); /* Throw away any pending I/O */
+
   int result = write(fd, &s, info_length + 18);
   if ( result < 18 ) {
     perror("write to SEPLOS BMS");
     exit(1);
   }
+  tcdrain(fd);
 
   /*
-   * This needs to be non-blocking, with a timeout, in the final version.
    * There should always be at least 18 bytes in a properly-formed packet.
    * at that point, we can parse the packet for correctness, read any additional
    * data indicated by the length code, and parse the final checksum for correctness.
@@ -148,22 +157,37 @@ bms_command(
    * so that they know what happened (presuming there is another power source
    * to keep the computer running).
    */
+
+  /*
+   * Becuase of the tcdrain() above, the BMC should have the command.
+   * Timeout of the read here is an unusual event, and likely means that the BMC got
+   * unplugged or went into hibernation.
+   * FIX: Use sigaction instead of signal.
+   */
+  signal(SIGALRM, got_alarm);
+  alarm(10);
   result = read(fd, response, 18);
+  alarm(0);
+  signal(SIGALRM, SIG_DFL);
   
   return 0;
 }
 
 static float
-seplos_protocol_version(int fd)
+seplos_protocol_version(int fd, unsigned int address)
 {
   Seplos_2_0	response = {};
+  /*
+   * For this command: BMS parses the address, but not the pack number.
+   */
+  char		pack_info[2] = "00";
 
   const unsigned int status = bms_command(
    fd,
-   0,			/* Address */
+   address,		/* Address */
    PROTOCOL_VER_GET,	/* command */
-   "00",		/* pack number */
-   2,			/* length of the above */
+   pack_info,		/* pack number */
+   sizeof(pack_info),	/* length of the above */
    &response);
 
   if ( status != 0 ) {
@@ -171,23 +195,36 @@ seplos_protocol_version(int fd)
     return -1.0;
   }
 
-  /* Insist on major version 2, accept any minor version. */
-  if ( response.version_code[0] != '2' ) {
-    fprintf(stderr, "SEPLOS BMS protocol is %s, expected 2.0\n", response.version_code);
-    return -1.0;
-  }
   return (response.version_code[0] - '0') + ((response.version_code[1] - '0') / 10.0);
+}
+
+int seplos_open(const char * serial_device)
+{
+  struct termios t = {};
+
+  const int fd = open(serial_device, O_RDWR|O_CLOEXEC|O_NOCTTY, 0);
+  if ( fd < 0 ) {
+    perror(serial_device);
+    return -1;
+  }
+
+  tcgetattr(fd, &t);
+  cfsetspeed(&t, 19200);
+  cfmakeraw(&t);
+  tcflush(fd, TCIOFLUSH); /* Throw away any pending I/O */
+  tcsetattr(fd, TCSANOW, &t);
+
+  return fd;
 }
 
 int
 main(int argc, char * * argv)
 {
-  int fd = open("/dev/ttyUSB0", O_RDWR|O_CLOEXEC|O_NOCTTY, 0);
-  if ( fd < 0 ) {
-    perror("/dev/ttyUSB0");
-    exit(1);
-  }
+  int fd = seplos_open("/dev/ttyUSB0");
 
-  fprintf(stderr, "%1.1f\n", seplos_protocol_version(fd));
+  if ( fd < 0 )
+    return 1;
+
+  fprintf(stderr, "%3.1f\n", seplos_protocol_version(fd, 0));
   return 0;
 }
