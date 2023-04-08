@@ -155,11 +155,12 @@ const char const * seplos_bit_alarm_names[SEPLOS_N_BIT_ALARMS] = {
   0,
   0,
   0,
-  /* Disconnection state 1 */
   /*
-   * I don't know if this happens normally during equalization, or if it's an error
-   * state.
+   * I don't know if the cell disconnection state happens normally during equalization,
+   * or if it's an error state. I only keep things that are actual alarm conditions
+   * in .bit_alarms[], so if this happens normally, it should be moved to its own array.
    */
+  /* Disconnection state 1 */
   "Cell 01 disconnection",
   "Cell 02 disconnection",
   "Cell 03 disconnection",
@@ -179,7 +180,13 @@ const char const * seplos_bit_alarm_names[SEPLOS_N_BIT_ALARMS] = {
   "Cell 16 disconnection",
 };
 
-const char seplos_temperature_names[] = {
+const char const * seplos_temperature_names[SEPLOS_N_TEMPERATURES] = {
+  "Cell temperature 1",
+  "Cell temperature 2",
+  "Cell temperature 3",
+  "Cell temperature 4",
+  "Environment temperature",
+  "Power temperature"
 };
 
 /*
