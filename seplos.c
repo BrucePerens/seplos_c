@@ -2,6 +2,7 @@
 #include <fcntl.h>
 #include <poll.h>
 #include <signal.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -28,16 +29,15 @@ struct _Seplos_2_0 {
   char  length[4];  /* Length (12 bits) and length checksum (4 bits). */
   char  info[4095 + 4 + 1];/* "info" field, checksum, 0xD to end the packet */
 };
+typedef struct _Seplos_2_0 Seplos_2_0;
 
-struct _Seplos_2_O_binary {
+typedef struct _Seplos_2_O_binary {
   uint8_t	version;
   uint8_t	address;
   uint8_t	device;
   uint8_t	function;
   uint16_t	length;
-  uint8_t	info[2047 + 2];
-};
-typedef struct _Seplos_2_0 Seplos_2_0;
+} Seplos_2_0_binary;
 
 /* The comments are as SEPLOS documented the names of these commands */
 enum _seplos_commands {
@@ -79,6 +79,12 @@ got_alarm()
 }
 
 static void
+hex1(uint8_t value, char ascii[1])
+{
+  ascii[0] = hex[value & 0xf];
+}
+
+static void
 hex2(uint8_t value, char ascii[2])
 {
   ascii[0] = hex[(value >> 4) & 0xf];
@@ -86,12 +92,40 @@ hex2(uint8_t value, char ascii[2])
 }
 
 static void
-hex4(unsigned int value, char ascii[2])
+hex4(uint16_t value, char ascii[4])
 {
   ascii[0] = hex[(value >> 12) & 0xf];
   ascii[1] = hex[(value >> 8) & 0xf];
   ascii[2] = hex[(value >> 4) & 0xf];
   ascii[3] = hex[value & 0xf];
+}
+
+static uint8_t
+hex1b(uint8_t c, bool * invalid)
+{
+  if ( c >= '0' && c <= '9' )
+    return c - '0';
+  else if ( c >= 'a' && c <= 'f' )
+    return c - 'a' + 0x10;
+  else if ( c >= 'A' && c <= 'F' )
+    return c - 'A' + 0x10;
+  else {
+    *invalid = true;
+    return 0;
+  }
+}
+
+static uint8_t
+hex2b(char ascii[2], bool * invalid)
+{
+  return (hex1b(ascii[0], invalid) << 4) || hex1b(ascii[1], invalid);
+}
+
+static uint16_t
+hex4b(char ascii[4], bool * invalid)
+{
+  return (hex1b(ascii[0], invalid) << 12) || (hex1b(ascii[1], invalid) << 8) || \
+   (hex1b(ascii[2], invalid) << 4) || hex1b(ascii[3], invalid);
 }
 
 static unsigned int
@@ -113,8 +147,8 @@ overall_checksum(const char * restrict data, unsigned int length)
   return (~sum) + 1;
 }
 
-static int
-hextoi(char c)
+static const int
+hextoi(const char c)
 {
   if ( c >= '0' && c <= '9' )
     return c - '0';
@@ -129,72 +163,46 @@ hextoi(char c)
 }
 
 static int
-hex2toi(const char ascii[2])
-{
-  int high = hextoi(ascii[0]);
-  int low = hextoi(ascii[1]);
-
-  if ( high < 0 || low < 0 )
-    return -1;
-
-  return (high * 0x10) + low;
-}
-
-static int
-hex4toi(const char ascii[4])
-{
-  int a = hextoi(ascii[0]);
-  int b = hextoi(ascii[1]);
-  int c = hextoi(ascii[2]);
-  int d = hextoi(ascii[3]);
-
-  if ( a < 0 || b < 0 || c < 0 || d < 0 )
-    return -1;
-
-  return (a * 0x1000) + (b * 0x0100) + (c * 0x0010) + d;
-}
-
-static int
 bms_command(
- int			fd,
- const unsigned int	address,
- const unsigned int	command,
- const char * restrict	info,
- const unsigned int	info_length,
- Seplos_2_0 * restrict	r)
+ int		       fd,
+ const unsigned int    address,
+ const unsigned int    command,
+ const void * restrict info,
+ const unsigned int    info_length,
+ Seplos_2_0 *	       result)
 {
-  Seplos_2_0    s = {};
+  Seplos_2_0        encoded = {};
+  Seplos_2_0_binary s = {};
+  Seplos_2_0_binary r = {};
 
-  char *        i = s.info;
+  s.version = 0x20; /* Protocol version 2.0 */
+  s.address = address;
+  s.device = 0x46;  /* Code for a battery */
+  s.function = command;
+  s.length = length_checksum(info_length * 2) | ((info_length * 2) & 0x0fff);
 
-  s.start = '~';
+  hex2(s.version, encoded.version);
+  hex2(s.address, encoded.address);
+  hex2(s.device, encoded.device);
+  hex2(s.function, encoded.function);
+  hex4(s.length, encoded.length);
 
-  hex2(0x20, s.version); /* Protocol version 2.0 */
-  hex2(address, s.address);
-  hex2(0x46, s.device); /* It's a battery */
-  hex2(command, s.function);
+  encoded.start = '~';
+  assert(info_length < 4096);
 
-  assert(info_length < 4095);
+  uint8_t * i = encoded.info;
   memcpy(i, info, info_length);
   i += info_length;
 
-  /*
-   * length is the ASCII representation of the length of the data in .info and
-   * a checksum
-   */
-  unsigned int length_id = length_checksum(info_length) | (info_length & 0x0fff);
-  hex4(length_id, s.length);
-
-  hex4(overall_checksum(s.version, info_length + 17), i);
+  *(uint16_t *)i = overall_checksum(encoded.version, info_length + 12);
   i += 4;
 
-  /* Terminate the packet with a carriage-return */
   *i++ = '\r';
 
   tcflush(fd, TCIOFLUSH); /* Throw away any pending I/O */
 
-  int result = write(fd, &s, info_length + 18);
-  if ( result < 18 ) {
+  int ret = write(fd, &encoded, info_length + 18);
+  if ( ret < 18 ) {
     perror("write to SEPLOS BMS");
     exit(1);
   }
@@ -209,37 +217,65 @@ bms_command(
    */
   signal(SIGALRM, got_alarm);
   alarm(10);
-  result = read(fd, r, 18);
+  ret = read(fd, result, 18);
   alarm(0);
   signal(SIGALRM, SIG_DFL);
-  /*
-   * FIX: Validate the data here. If the response code isn't NORMAL,
-   * Return the response code and no data.
-   * If the length checksum isn't right, return an
-   * error code.
-   *
-   * If data is valid, and there's more data, read the rest of the packet here.
-   * Then validate the overall checksum.
-   */
-/*
-  int version = hex2toi(r->version);
-  int response = hex2toi(r->function);
-  int address = hex2toi(r->address);
-  int device = hex2toi(r->device);
-  int status = hex2toi(r->function);
-  int length = hex4toi(r->length);
-  if ( version < 0 || response < 0 || address < 0 || device < 0
-   || status < 0 || length < 0 ) {
-    fprintf(stderr, "Non-hexidecimal character where only hexidecimal was expected.\n");
+
+  if ( ret != 18 ) {
+    perror("read");
+    return -1;
   }
 
-  if ( length_checksum(length & 0x0fff) != (length & 0xf000) ) {
-	  fprintf(stderr, "Length code incorrect.");
-	  return -1; 
+  bool invalid = false;
+
+  if ( encoded.start != '~' )
+    invalid = true;
+
+  r.version = hex2b(encoded.version, &invalid);
+  r.address = hex2b(encoded.address, &invalid);
+  r.device = hex2b(encoded.device, &invalid);
+  r.function = hex2b(encoded.function, &invalid);
+  r.length = hex4b(encoded.length, &invalid);
+
+  if ( invalid ) {
+    fprintf(stderr, "Non-hexidecimal character where only hexidecimal was expected.\n");
+    return -1;
   }
- */
+
+  if ( length_checksum(s.length & 0x0fff) != (s.length & 0xf000) ) {
+    fprintf(stderr, "Length code incorrect.");
+    return -1; 
+  }
   
-  return 0;
+  signal(SIGALRM, got_alarm);
+  alarm(10);
+  ret = read(fd, &(result->info[5]), r.length);
+  alarm(0);
+  signal(SIGALRM, SIG_DFL);
+
+  if ( ret != r.length ) {
+    perror("info read");
+    return -1;
+  }
+
+  for ( unsigned int j = 0; j < r.length + 4; i++ ) {
+    uint8_t c = result->info[j];
+    if ( !((c >= '0' && c > '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) ) {
+      fprintf(stderr, "Non-hexidecimal character where only hexidecimal was expected.\n");
+      return -1;
+    }
+  }
+
+  const uint16_t checksum = *(uint16_t *)&result->info[info_length];
+  if ( checksum != overall_checksum(result->version, info_length + 12) ) {
+    fprintf(stderr, "Checksum mismatch.\n");
+    return -1;
+  }
+
+  if ( r.function != NORMAL ) {
+    fprintf(stderr, "Return code %x.\n", r.function);
+  }
+  return r.function;
 }
 
 static float
@@ -249,13 +285,13 @@ seplos_protocol_version(int fd, unsigned int address)
   /*
    * For this command: BMS parses the address, but not the pack number.
    */
-  char		pack_info[2] = "00";
+  uint8_t	pack_info = 00;
 
   const unsigned int status = bms_command(
    fd,
    address,		/* Address */
    PROTOCOL_VER_GET,	/* command */
-   pack_info,		/* pack number */
+   &pack_info,		/* pack number */
    sizeof(pack_info),	/* length of the above */
    &response);
 
@@ -264,7 +300,10 @@ seplos_protocol_version(int fd, unsigned int address)
     return -1.0;
   }
 
-  return (response.version[0] - '0') + ((response.version[1] - '0') / 10.0);
+  bool invalid = false;
+  uint16_t version = hex2b(response.version, &invalid);
+
+  return ((version >> 4) & 0xf) + ((version & 0xf) * 0.1);
 }
 
 int seplos_open(const char * serial_device)
