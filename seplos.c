@@ -2,6 +2,7 @@
 #include <fcntl.h>
 #include <poll.h>
 #include <signal.h>
+#include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -72,6 +73,18 @@ enum _seplos_response {
 };
 
 static const char hex[] = "0123456789ABCDEF";
+
+static void
+error(const char * restrict pattern, ...)
+{
+  va_list args;
+
+  va_start(args, pattern);
+  fflush(stdout);
+  vfprintf(stderr, pattern, args);
+  fflush(stderr);
+  va_end(args);
+}
 
 static void
 hex1(uint8_t value, char ascii[1])
@@ -220,13 +233,19 @@ bms_command(
   r.function = hex2b(result->function, &invalid);
   r.length = hex4b(result->length, &invalid);
 
+  /* Abort if the major protocol version isn't 2. Accept any minor version */
+  if ( r.version > 0x2f || r.version < 0x20 ) {
+    error("SEPLOS protocol %x not implemented.\n");
+    return -1;
+  }
+
   if ( invalid ) {
-    fprintf(stderr, "Non-hexidecimal character where only hexidecimal was expected.\n");
+    error("Non-hexidecimal character where only hexidecimal was expected.\n");
     return -1;
   }
 
   if ( length_checksum(r.length & 0x0fff) != (r.length & 0xf000) ) {
-    fprintf(stderr, "Length code incorrect.");
+    error("Length code incorrect.");
     return -1; 
   }
   
@@ -241,19 +260,19 @@ bms_command(
   for ( unsigned int j = 0; j < r.length + 4; j++ ) {
     uint8_t c = result->info[j];
     if ( !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) ) {
-      fprintf(stderr, "Non-hexidecimal character where only hexidecimal was expected.\n");
+      error("Non-hexidecimal character where only hexidecimal was expected.\n");
       return -1;
     }
   }
 
   checksum = hex4b(&(result->info[r.length]), &invalid);
   if ( invalid || checksum != overall_checksum(result->version, r.length + 12) ) {
-    fprintf(stderr, "Checksum mismatch.\n");
+    error("Checksum mismatch.\n");
     return -1;
   }
 
   if ( r.function != NORMAL ) {
-    fprintf(stderr, "Return code %x.\n", r.function);
+    error("Return code %x.\n", r.function);
   }
   return r.function;
 }
@@ -276,7 +295,7 @@ seplos_protocol_version(int fd, unsigned int address)
    &response);
 
   if ( status != 0 ) {
-    fprintf(stderr, "Bad response %x from SEPLOS BMS.\n", status);
+    error("Bad response %x from SEPLOS BMS.\n", status);
     return -1.0;
   }
 
@@ -313,6 +332,6 @@ main(int argc, char * * argv)
   if ( fd < 0 )
     return 1;
 
-  fprintf(stderr, "%3.1f\n", seplos_protocol_version(fd, 0));
+  error("%3.1f\n", seplos_protocol_version(fd, 0));
   return 0;
 }
