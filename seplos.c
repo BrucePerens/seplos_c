@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <poll.h>
 #include <signal.h>
@@ -42,7 +43,7 @@ typedef struct _Seplos_2_O_binary {
 
 /* The comments are as SEPLOS documented the names of these commands */
 enum _seplos_commands {
-  TELEMETERY_GET =     0x42,    /* Acquisition of telemetering information */
+  TELEMETRY_GET =     0x42,    /* Acquisition of telemetering information */
   TELECOMMAND_GET =    0x44,    /* Acquisition of telecommand information */
   TELECONTROL_CMD =    0x45,    /* Telecontrol command */
   TELEREGULATION_GET = 0x47,    /* Acquisition of teleregulation information */
@@ -156,10 +157,29 @@ overall_checksum(const char * restrict data, unsigned int length)
 }
 
 static unsigned int
-read_with_timeout(int fd, void * data, size_t size)
+read_serial(int fd, void * data, size_t size)
 {
   /* FIX: Fill in the timeout here. */
-  return read(fd, data, size);
+
+  size_t received_amount = 0;
+
+  while ( received_amount < size ) {
+    int ret = read(fd, data, size - received_amount);
+    if ( ret < 0 ) {
+      error("Read failed: %s\n", strerror(errno));
+      return ret;
+    }
+    else if ( ret == 0 ) {
+      /* Read should always block until it receives at least one character */
+      error("Serial end-of-file.\n");
+      return -1;
+    }
+    else {
+      received_amount += ret;
+      data += ret;
+    }
+  }
+  return received_amount;
 }
 
 static int
@@ -204,7 +224,7 @@ bms_command(
 
   int ret = write(fd, &encoded, info_length + 18);
   if ( ret != info_length + 18 ) {
-    perror("write to SEPLOS BMS");
+    error("Write: %s\n", strerror(errno));
     exit(1);
   }
   tcdrain(fd);
@@ -215,10 +235,10 @@ bms_command(
    * Timeout of the read here is an unusual event, and likely means that the BMC got
    * unplugged or went into hibernation.
    */
-  ret = read_with_timeout(fd, result, 18);
+  ret = read_serial(fd, result, 18);
 
   if ( ret != 18 ) {
-    perror("read");
+    error("Read %s\n", strerror(errno));
     return -1;
   }
 
@@ -248,11 +268,13 @@ bms_command(
     error("Length code incorrect.");
     return -1; 
   }
+ 
+  r.length &= 0x0fff;
   
   if ( r.length > 0 ) {
-    ret = read_with_timeout(fd, &(result->info[5]), r.length);
+    ret = read_serial(fd, &(result->info[5]), r.length);
     if ( ret != r.length ) {
-      perror("info read");
+      error("Info read: %s\n", strerror(errno));
       return -1;
     }
   }
@@ -277,7 +299,7 @@ bms_command(
   return r.function;
 }
 
-static float
+float
 seplos_protocol_version(int fd, unsigned int address)
 {
   Seplos_2_0	response = {};
@@ -305,13 +327,39 @@ seplos_protocol_version(int fd, unsigned int address)
   return ((version >> 4) & 0xf) + ((version & 0xf) * 0.1);
 }
 
-int seplos_open(const char * serial_device)
+static int
+telemetry(int fd, unsigned int address, unsigned int pack)
+{
+  Seplos_2_0	response = {};
+  uint8_t	pack_info[2];
+
+  hex2(pack, pack_info);
+
+  const unsigned int status = bms_command(
+   fd,
+   address,		/* Address */
+   TELEMETRY_GET,	/* command */
+   &pack_info,		/* pack number */
+   sizeof(pack_info),	/* length of the above */
+   &response);
+
+  if ( status != 0 ) {
+    error("Bad response %x from SEPLOS BMS.\n", status);
+    return -1;
+  }
+
+  bool invalid = false;
+  return 0;
+}
+
+int
+seplos_open(const char * serial_device)
 {
   struct termios t = {};
 
   const int fd = open(serial_device, O_RDWR|O_CLOEXEC|O_NOCTTY, 0);
   if ( fd < 0 ) {
-    perror(serial_device);
+    error("%s: %s\n", serial_device, strerror(errno));
     return -1;
   }
 
@@ -332,6 +380,6 @@ main(int argc, char * * argv)
   if ( fd < 0 )
     return 1;
 
-  error("%3.1f\n", seplos_protocol_version(fd, 0));
+  telemetry(fd, 0, 1);
   return 0;
 }
