@@ -51,6 +51,48 @@ typedef struct _Seplos_2_O_binary {
   uint16_t	length;
 } Seplos_2_0_binary;
 
+/*
+ * Monitoring information from the battery pack.
+ */
+
+#define SEPLOS_MAX_CELLS 16
+#define SEPLOS_MAX_TEMPERATURES 16
+#define SEPLOS_MAX_BYTE_ALARMS 24
+#define SEPLOS_MAX_BIT_ALARMS 100
+
+const char seplos_alarm_names[] = {
+};
+/*
+ * Temperatures are in Celsius.
+ */
+typedef struct _Seplos_monitor {
+  unsigned int	number_of_cells;
+  float		charge_discharge_current;
+  float		total_battery_voltage;
+  float		residual_capacity; /* amp hours */
+  float		battery_capacity; /* amp hours */
+  float		state_of_charge; /* percentage */
+  float		rated_capacity; /* amp hours */
+  unsigned int	number_of_cycles; /* maximum 65535 */
+  float		state_of_health; /* Ratio of current maximum charge to rated capacity */
+  float		port_voltage;
+  bool		discharge;
+  bool		charge;
+  bool		floating_charge;
+  bool		standby;
+  bool		shutdown;
+  bool		discharge_switch;
+  bool		charge_switch;
+  bool		current_switch;
+  bool		heating_switch;
+  bool		automatic_charging_waiting;
+  bool		cell_equilibrium[SEPLOS_MAX_CELLS];
+  float		cell_voltage[SEPLOS_MAX_CELLS];
+  float		temperature[SEPLOS_MAX_TEMPERATURES];
+  uint8_t	byte_alarm[SEPLOS_MAX_BYTE_ALARMS];
+  bool		bit_alarm[SEPLOS_MAX_BIT_ALARMS];
+} Seplos_monitor;
+
 /* The comments are as SEPLOS documented the names of these commands */
 enum _seplos_commands {
   TELEMETRY_GET =     0x42,    /* Acquisition of telemetering information */
@@ -388,6 +430,16 @@ telecommand(int fd, unsigned int address, unsigned int pack)
 }
 
 int
+seplos_monitor(int fd, unsigned int address, unsigned int pack)
+{
+  int ret1 = telemetry(fd, address, pack);
+  int ret2 = telemetry(fd, address, pack);
+
+  if ( ret1 != 0 || ret2 != 0 )
+    return -1;
+}
+
+int
 seplos_open(const char * serial_device)
 {
   struct termios t = {};
@@ -415,6 +467,6 @@ main(int argc, char * * argv)
   if ( fd < 0 )
     return 1;
 
-  telecommand(fd, 0, 0x01);
+  seplos_monitor(fd, 0, 0x01);
   return 0;
 }
