@@ -1,5 +1,11 @@
 /*
  * Seplos BMS communication protocol 2.0
+ * Bruce Perens K6BP <bruce@perens.com>
+ * Copyright (C) 2023 Algorithmic LLC. 
+ * Licensed under the Affero GPL 3.0
+ *
+ * I use share-and-share-alike licenses on work I've not been paid for.
+ * Want this under a gift-style license like Apache 2? Pay me for the work I've done.
  *
  * Although the SEPLOS document refers to this as a Modbus-ASCII protocol, it isn't
  * one. They're confusing the Modbus-ASCII _protocol_, which they don't use, with the
