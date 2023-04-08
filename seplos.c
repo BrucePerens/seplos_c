@@ -1,3 +1,16 @@
+/*
+ * Seplos BMS communication protocol 2.0
+ *
+ * Although the SEPLOS document refers to this as a Modbus-ASCII protocol, it isn't
+ * one. They're confusing the Modbus-ASCII _protocol_, which they don't use, with the
+ * RS-485 _transport_, which they use. It seems common to confuse the two. This is more
+ * properly called an ASCII-over-RS-485 protocol. Modbus-ASCII packets start with ':'
+ * rather than the '~' used by SEPLOS, and the packet format is entirely different.
+ *
+ * Limitations:
+ * * I haven't tested this with a second battery connected to the first.
+ */
+
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -13,15 +26,6 @@
 #include <termios.h>
 #include <unistd.h>
 
-/*
- * Seplos BMS communication protocol 2.0
- *
- * Although the SEPLOS document refers to this as a Modbus-ASCII protocol, it isn't
- * one. They're confusing the Modbus-ASCII _protocol_, which they don't use, with the
- * RS-485 _transport_, which they use. It seems common to confuse the two. This is more
- * properly called an ASCII-over-RS-485 protocol. Modbus-ASCII packets start with ':'
- * rather than the '~' used by SEPLOS, and the packet format is entirely different.
- */
 struct _Seplos_2_0 {
   char  start;      /* Always '~' */
   char  version[2]; /* Always '2', '0' for protocol version 2.0 */
@@ -352,6 +356,31 @@ telemetry(int fd, unsigned int address, unsigned int pack)
   return 0;
 }
 
+static int
+telecommand(int fd, unsigned int address, unsigned int pack)
+{
+  Seplos_2_0	response = {};
+  uint8_t	pack_info[2];
+
+  hex2(pack, pack_info);
+
+  const unsigned int status = bms_command(
+   fd,
+   address,		/* Address */
+   TELECOMMAND_GET,	/* command */
+   &pack_info,		/* pack number */
+   sizeof(pack_info),	/* length of the above */
+   &response);
+
+  if ( status != 0 ) {
+    error("Bad response %x from SEPLOS BMS.\n", status);
+    return -1;
+  }
+
+  bool invalid = false;
+  return 0;
+}
+
 int
 seplos_open(const char * serial_device)
 {
@@ -375,11 +404,11 @@ seplos_open(const char * serial_device)
 int
 main(int argc, char * * argv)
 {
-  int fd = seplos_open("/dev/ttyUSB1");
+  int fd = seplos_open("/dev/ttyUSB0");
 
   if ( fd < 0 )
     return 1;
 
-  telemetry(fd, 0, 1);
+  telecommand(fd, 0, 0x01);
   return 0;
 }
