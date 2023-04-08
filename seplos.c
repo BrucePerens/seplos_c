@@ -74,11 +74,6 @@ enum _seplos_response {
 static const char hex[] = "0123456789ABCDEF";
 
 static void
-got_alarm()
-{
-}
-
-static void
 hex1(uint8_t value, char ascii[1])
 {
   ascii[0] = hex[value & 0xf];
@@ -106,9 +101,9 @@ hex1b(uint8_t c, bool * invalid)
   if ( c >= '0' && c <= '9' )
     return c - '0';
   else if ( c >= 'a' && c <= 'f' )
-    return c - 'a' + 0x10;
+    return c - 'a' + 10;
   else if ( c >= 'A' && c <= 'F' )
-    return c - 'A' + 0x10;
+    return c - 'A' + 10;
   else {
     *invalid = true;
     return 0;
@@ -118,14 +113,14 @@ hex1b(uint8_t c, bool * invalid)
 static uint8_t
 hex2b(char ascii[2], bool * invalid)
 {
-  return (hex1b(ascii[0], invalid) << 4) || hex1b(ascii[1], invalid);
+  return (hex1b(ascii[0], invalid) << 4) | hex1b(ascii[1], invalid);
 }
 
 static uint16_t
 hex4b(char ascii[4], bool * invalid)
 {
-  return (hex1b(ascii[0], invalid) << 12) || (hex1b(ascii[1], invalid) << 8) || \
-   (hex1b(ascii[2], invalid) << 4) || hex1b(ascii[3], invalid);
+  return (hex1b(ascii[0], invalid) << 12) | (hex1b(ascii[1], invalid) << 8) | \
+   (hex1b(ascii[2], invalid) << 4) | hex1b(ascii[3], invalid);
 }
 
 static unsigned int
@@ -144,22 +139,14 @@ overall_checksum(const char * restrict data, unsigned int length)
     sum += *data++;
   }
 
-  return (~sum) + 1;
+  return ((~sum) & 0xffff) + 1;
 }
 
-static const int
-hextoi(const char c)
+static unsigned int
+read_with_timeout(int fd, void * data, size_t size)
 {
-  if ( c >= '0' && c <= '9' )
-    return c - '0';
-  else if ( c >= 'a' && c <= 'f' )
-    return c - 'a' + 10;
-  else if ( c >= 'A' && c <= 'F' )
-    return c - 'A' + 10;
-  else {
-    fprintf(stderr, "Bad hex character \"%c\" (decimal %d).\n");
-    return -1;
-  }
+  /* FIX: Fill in the timeout here. */
+  return read(fd, data, size);
 }
 
 static int
@@ -179,7 +166,7 @@ bms_command(
   s.address = address;
   s.device = 0x46;  /* Code for a battery */
   s.function = command;
-  s.length = length_checksum(info_length * 2) | ((info_length * 2) & 0x0fff);
+  s.length = length_checksum(info_length) | (info_length & 0x0fff);
 
   hex2(s.version, encoded.version);
   hex2(s.address, encoded.address);
@@ -194,7 +181,8 @@ bms_command(
   memcpy(i, info, info_length);
   i += info_length;
 
-  *(uint16_t *)i = overall_checksum(encoded.version, info_length + 12);
+  uint16_t checksum = overall_checksum(encoded.version, info_length + 12);
+  hex4(checksum, i);
   i += 4;
 
   *i++ = '\r';
@@ -202,7 +190,7 @@ bms_command(
   tcflush(fd, TCIOFLUSH); /* Throw away any pending I/O */
 
   int ret = write(fd, &encoded, info_length + 18);
-  if ( ret < 18 ) {
+  if ( ret != info_length + 18 ) {
     perror("write to SEPLOS BMS");
     exit(1);
   }
@@ -213,13 +201,8 @@ bms_command(
    * There should always be at least 18 bytes in a properly-formed packet.
    * Timeout of the read here is an unusual event, and likely means that the BMC got
    * unplugged or went into hibernation.
-   * FIX: Use sigaction instead of signal.
    */
-  signal(SIGALRM, got_alarm);
-  alarm(10);
-  ret = read(fd, result, 18);
-  alarm(0);
-  signal(SIGALRM, SIG_DFL);
+  ret = read_with_timeout(fd, result, 18);
 
   if ( ret != 18 ) {
     perror("read");
@@ -228,46 +211,43 @@ bms_command(
 
   bool invalid = false;
 
-  if ( encoded.start != '~' )
+  if ( result->start != '~' )
     invalid = true;
 
-  r.version = hex2b(encoded.version, &invalid);
-  r.address = hex2b(encoded.address, &invalid);
-  r.device = hex2b(encoded.device, &invalid);
-  r.function = hex2b(encoded.function, &invalid);
-  r.length = hex4b(encoded.length, &invalid);
+  r.version = hex2b(result->version, &invalid);
+  r.address = hex2b(result->address, &invalid);
+  r.device = hex2b(result->device, &invalid);
+  r.function = hex2b(result->function, &invalid);
+  r.length = hex4b(result->length, &invalid);
 
   if ( invalid ) {
     fprintf(stderr, "Non-hexidecimal character where only hexidecimal was expected.\n");
     return -1;
   }
 
-  if ( length_checksum(s.length & 0x0fff) != (s.length & 0xf000) ) {
+  if ( length_checksum(r.length & 0x0fff) != (r.length & 0xf000) ) {
     fprintf(stderr, "Length code incorrect.");
     return -1; 
   }
   
-  signal(SIGALRM, got_alarm);
-  alarm(10);
-  ret = read(fd, &(result->info[5]), r.length);
-  alarm(0);
-  signal(SIGALRM, SIG_DFL);
-
-  if ( ret != r.length ) {
-    perror("info read");
-    return -1;
+  if ( r.length > 0 ) {
+    ret = read_with_timeout(fd, &(result->info[5]), r.length);
+    if ( ret != r.length ) {
+      perror("info read");
+      return -1;
+    }
   }
-
-  for ( unsigned int j = 0; j < r.length + 4; i++ ) {
+  
+  for ( unsigned int j = 0; j < r.length + 4; j++ ) {
     uint8_t c = result->info[j];
-    if ( !((c >= '0' && c > '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) ) {
+    if ( !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) ) {
       fprintf(stderr, "Non-hexidecimal character where only hexidecimal was expected.\n");
       return -1;
     }
   }
 
-  const uint16_t checksum = *(uint16_t *)&result->info[info_length];
-  if ( checksum != overall_checksum(result->version, info_length + 12) ) {
+  checksum = hex4b(&(result->info[r.length]), &invalid);
+  if ( invalid || checksum != overall_checksum(result->version, r.length + 12) ) {
     fprintf(stderr, "Checksum mismatch.\n");
     return -1;
   }
@@ -285,7 +265,7 @@ seplos_protocol_version(int fd, unsigned int address)
   /*
    * For this command: BMS parses the address, but not the pack number.
    */
-  uint8_t	pack_info = 00;
+  uint8_t	pack_info[2] = "00";
 
   const unsigned int status = bms_command(
    fd,
