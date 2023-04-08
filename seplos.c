@@ -200,9 +200,18 @@ const char const * seplos_temperature_names[SEPLOS_N_TEMPERATURES] = {
  * "other alarms". Bit alarms are represented as C bool, and are in alarm
  * state if they are true.
  * 
- * 
+ * The documentation leaves a few issues of the numeric conversion for clarification
+ * via experimentation. Or maybe it's wrong. Here's what it claims:
  *
- * Temperatures are in Celsius.
+ * Temperatures are in Celsius and are signed, they are based on 4-digit BASE-10,
+ * not hexidecimal, ASCII unsigned Kelvin temperature in a representation of xxx.y .
+ *
+ * All of the other float values are based upon 4-digit BASE-10, not hexidecimal, ASCII
+ * numbers with a fixed-point representation * of xx.yy, so have a range of 0.0 to 99.99;
+ * _except_ that the documentation claims that total current is signed! Is it
+ * twos complement? Or do they stick a '-' in an otherwise hexidecimal stream?
+ *
+ * The one lonely integer value, the cycle count, may be BASE-10 or hexidecimal.
  */
 typedef struct _Seplos_monitor {
   unsigned int	number_of_cells;
@@ -212,7 +221,7 @@ typedef struct _Seplos_monitor {
   float		battery_capacity; /* amp hours */
   float		state_of_charge; /* percentage */
   float		rated_capacity; /* amp hours */
-  unsigned int	number_of_cycles; /* maximum 65535 */
+  unsigned int	number_of_cycles;
   float		state_of_health; /* Ratio of current maximum charge to rated capacity */
   float		port_voltage;
   bool		discharge;
