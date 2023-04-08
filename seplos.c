@@ -15,6 +15,10 @@
  *
  * Limitations:
  * * I haven't tested this with a second battery connected to the first.
+ * * At this writing, I've not installed the battery where the charger is. Thus
+ *   some issues of what is a normal vs. alarm condition, and how the numeric
+ *   conversions actually work, will wait until I have the battery installed at
+ *   my remote site.
  */
 
 #include <assert.h>
