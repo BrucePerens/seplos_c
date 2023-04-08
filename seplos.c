@@ -55,14 +55,146 @@ typedef struct _Seplos_2_O_binary {
  * Monitoring information from the battery pack.
  */
 
-#define SEPLOS_MAX_CELLS 16
-#define SEPLOS_MAX_TEMPERATURES 16
-#define SEPLOS_MAX_BYTE_ALARMS 24
-#define SEPLOS_MAX_BIT_ALARMS 100
+#define SEPLOS_N_CELLS 16
+#define SEPLOS_N_TEMPERATURES 16
+#define SEPLOS_N_BYTE_ALARMS 24
+#define SEPLOS_N_BIT_ALARMS 73
 
-const char seplos_alarm_names[] = {
+const char const * seplos_byte_alarm_names[SEPLOS_N_BYTE_ALARMS] = {
+  "Cell alarm 1",
+  "Cell alarm 2",
+  "Cell alarm 3",
+  "Cell alarm 4",
+  "Cell alarm 5",
+  "Cell alarm 6",
+  "Cell alarm 7",
+  "Cell alarm 8",
+  "Cell alarm 9",
+  "Cell alarm 10",
+  "Cell alarm 11",
+  "Cell alarm 12",
+  "Cell alarm 13",
+  "Cell alarm 14",
+  "Cell alarm 15",
+  "Cell alarm 16",
+  "Cell temperature alarm 1",
+  "Cell temperature alarm 2",
+  "Cell temperature alarm 3",
+  "Cell temperature alarm 4",
+  "Environment temperature alarm",
+  "Power temperature alarm 1",
+  "Charge/discharge current alarm",
+  "Total battery voltage alarm"
 };
+
+const char const * seplos_bit_alarm_names[SEPLOS_N_BIT_ALARMS] = {
+  /* Alarm event 1 */
+  "Voltage sensor fault",
+  "Temperature sensor fault",
+  "Current sensor fault",
+  "Key switch fault",
+  "Cell voltage dropout fault",
+  "Charge switch fault",
+  "Discharge switch fault",
+  "Current-limit switch fault",
+  /* Alarm event 2 */
+  "Monomer high-voltage alarm",
+  "Monomer overvoltage protection",
+  "Monomer low-voltage alarm",
+  "Monomer under-voltage protection",
+  "High voltage alarm for total voltage",
+  "Overvoltage protection for total voltage",
+  "Low voltage alarm for total voltage",
+  "Under voltage protection for total voltage",
+  /* Alarm event 3 */
+  "Charge high-temperature alarm",
+  "Charge over-temperature protection",
+  "Charge low-temperature alarm",
+  "Charge under-temperature protection",
+  "Discharge high-temperature alarm",
+  "Discharge over-temperature protection",
+  "Discharge low-temperature alarm",
+  "Discharge under-temperature protection",
+  /* Alarm event 4 */
+  "Environment high-temperature alarm",
+  "Environment over-temperature protection",
+  "Environment low-temperature alarm",
+  "Environment under-temperature protection",
+  "Power over-temperature protection",
+  "Power high-temperature alarm",
+  "Cell low-temperature heating",
+  0,
+  /* Alarm event 5 */
+  "Charge over-current alarm",
+  "Charge over-current protection",
+  "Discharge over-current alarm",
+  "Discharge over-current protection",
+  "Transient over-current protection",
+  "Output short-circuit protection",
+  "Transient over-current lockout",
+  "Output short-circuit lockout",
+  /* Alarm event 6 */
+  "Charge high-voltage protection",
+  "Intermittent recharge waiting",
+  "Residual capacity alarm",
+  "Residual capacity protection",
+  "Cell low-voltage charging prohibition",
+  "Output reverse-polarity protection",
+  "Output connection fault",
+  0,
+  /*
+   * Skip alarm event 7, the only defined bits are represented as bools
+   * in Seplos_monitoring.
+   */
+  /* Alarm Event 8 */
+  "EEPROM storage fault",
+  "Real Time Clock error",
+  "Voltage calibration not performed",
+  "Current calibration not performed",
+  "Zero calibration not performed",
+  0,
+  0,
+  0,
+  /* Disconnection state 1 */
+  /*
+   * I don't know if this happens normally during equalization, or if it's an error
+   * state.
+   */
+  "Cell 01 disconnection",
+  "Cell 02 disconnection",
+  "Cell 03 disconnection",
+  "Cell 04 disconnection",
+  "Cell 05 disconnection",
+  "Cell 06 disconnection",
+  "Cell 07 disconnection",
+  "Cell 08 disconnection",
+  /* Disconnection state 2 */
+  "Cell 09 disconnection",
+  "Cell 10 disconnection",
+  "Cell 11 disconnection",
+  "Cell 12 disconnection",
+  "Cell 13 disconnection",
+  "Cell 14 disconnection",
+  "Cell 15 disconnection",
+  "Cell 16 disconnection",
+};
+
+const char seplos_temperature_names[] = {
+};
+
 /*
+ * This is the structure that all other software will use to montior the battery.
+ * All of the communications, validation, and data conversion to the native data
+ * format are done for the user.
+ *
+ * Alarms are an array, their names are in seplos_byte_alarm_names[] and
+ * seplos_bit_alarm_names[]. Byte alarms are normal if 0, 1 means the lower
+ * limit was reached, 2 means the upper limit was reached, 0xf0 means
+ * "other alarms". Bit alarms are represented as C bool, and are in alarm
+ * state if they are true.
+ * 
+ * 
+ *
  * Temperatures are in Celsius.
  */
 typedef struct _Seplos_monitor {
@@ -86,11 +218,19 @@ typedef struct _Seplos_monitor {
   bool		current_switch;
   bool		heating_switch;
   bool		automatic_charging_waiting;
-  bool		cell_equilibrium[SEPLOS_MAX_CELLS];
-  float		cell_voltage[SEPLOS_MAX_CELLS];
-  float		temperature[SEPLOS_MAX_TEMPERATURES];
-  uint8_t	byte_alarm[SEPLOS_MAX_BYTE_ALARMS];
-  bool		bit_alarm[SEPLOS_MAX_BIT_ALARMS];
+  bool		c_charging_waiting;
+  bool		cell_equilibrium[SEPLOS_N_CELLS];
+  float		cell_voltage[SEPLOS_N_CELLS];
+  float		temperature[SEPLOS_N_TEMPERATURES];
+  /*
+   * An alarm state is abnormal. All of the status that would be set in normal
+   * operations is stored elsewhere in this structure, so if any of the byte
+   * or bit alarms are set, the user software should indicate an alarm state,
+   * notify the user, etc.
+   */
+  uint8_t	byte_alarm[SEPLOS_N_BYTE_ALARMS];
+  /* Bit alarms are in a bit-field here, rather than bool, to make them quick to scan. */
+  uint32_t	bit_alarms[(SEPLOS_N_BIT_ALARMS / 32) + !!(SEPLOS_N_BIT_ALARMS % 32)];
 } Seplos_monitor;
 
 /* The comments are as SEPLOS documented the names of these commands */
@@ -430,7 +570,7 @@ telecommand(int fd, unsigned int address, unsigned int pack)
 }
 
 int
-seplos_monitor(int fd, unsigned int address, unsigned int pack)
+seplos_monitor(int fd, unsigned int address, unsigned int pack, Seplos_monitor * m)
 {
   int ret1 = telemetry(fd, address, pack);
   int ret2 = telemetry(fd, address, pack);
@@ -463,10 +603,11 @@ int
 main(int argc, char * * argv)
 {
   int fd = seplos_open("/dev/ttyUSB0");
+  Seplos_monitor m;
 
   if ( fd < 0 )
     return 1;
 
-  seplos_monitor(fd, 0, 0x01);
+  seplos_monitor(fd, 0, 0x01, &m);
   return 0;
 }
