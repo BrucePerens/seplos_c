@@ -20,14 +20,22 @@
  * rather than the '~' used by SEPLOS, and the packet format is entirely different.
  */
 struct _Seplos_2_0 {
-  char  start_code;      /* Always '~' */
-  char  version_code[2]; /* Always '2', '0' for protocol version 2.0 */
-  char  address_code[2]; /* ASCII value from '0' to '15' */
-  char  device_code[2];  /* Always '4', '6' for a battery */
-  char  function_code[2];/* Command or reply ID */
-  char  length_code[4];  /* Length (12 bits) and length checksum (4 bits). */
+  char  start;      /* Always '~' */
+  char  version[2]; /* Always '2', '0' for protocol version 2.0 */
+  char  address[2]; /* ASCII value from '0' to '15' */
+  char  device[2];  /* Always '4', '6' for a battery */
+  char  function[2];/* Command or reply ID */
+  char  length[4];  /* Length (12 bits) and length checksum (4 bits). */
   char  info[4095 + 4 + 1];/* "info" field, checksum, 0xD to end the packet */
-  const char guard;  /* Pointer to .info must not reach this address */
+};
+
+struct _Seplos_2_O_binary {
+  uint8_t	version;
+  uint8_t	address;
+  uint8_t	device;
+  uint8_t	function;
+  uint16_t	length;
+  uint8_t	info[2047 + 2];
 };
 typedef struct _Seplos_2_0 Seplos_2_0;
 
@@ -87,48 +95,97 @@ hex4(unsigned int value, char ascii[2])
 }
 
 static unsigned int
+length_checksum(unsigned int length)
+{
+  const unsigned int sum = ((length >> 8) & 0xf) + ((length >> 4) & 0x0f) + (length & 0x0f);
+  return (((~(sum & 0xff)) + 1) << 12) & 0xf000;
+}
+
+static unsigned int
+overall_checksum(const char * restrict data, unsigned int length)
+{
+  unsigned int sum = 0;
+
+  for ( unsigned int i = 0; i < length; i++ ) {
+    sum += *data++;
+  }
+
+  return (~sum) + 1;
+}
+
+static int
+hextoi(char c)
+{
+  if ( c >= '0' && c <= '9' )
+    return c - '0';
+  else if ( c >= 'a' && c <= 'f' )
+    return c - 'a' + 10;
+  else if ( c >= 'A' && c <= 'F' )
+    return c - 'A' + 10;
+  else {
+    fprintf(stderr, "Bad hex character \"%c\" (decimal %d).\n");
+    return -1;
+  }
+}
+
+static int
+hex2toi(const char ascii[2])
+{
+  int high = hextoi(ascii[0]);
+  int low = hextoi(ascii[1]);
+
+  if ( high < 0 || low < 0 )
+    return -1;
+
+  return (high * 0x10) + low;
+}
+
+static int
+hex4toi(const char ascii[4])
+{
+  int a = hextoi(ascii[0]);
+  int b = hextoi(ascii[1]);
+  int c = hextoi(ascii[2]);
+  int d = hextoi(ascii[3]);
+
+  if ( a < 0 || b < 0 || c < 0 || d < 0 )
+    return -1;
+
+  return (a * 0x1000) + (b * 0x0100) + (c * 0x0010) + d;
+}
+
+static int
 bms_command(
  int			fd,
  const unsigned int	address,
  const unsigned int	command,
  const char * restrict	info,
  const unsigned int	info_length,
- Seplos_2_0 * restrict	response)
+ Seplos_2_0 * restrict	r)
 {
   Seplos_2_0    s = {};
 
   char *        i = s.info;
 
-  s.start_code = '~';
+  s.start = '~';
 
-  hex2(0x20, s.version_code); /* Protocol version 2.0 */
-  hex2(address, s.address_code);
-  hex2(0x46, s.device_code); /* It's a battery */
-  hex2(command, s.function_code);
+  hex2(0x20, s.version); /* Protocol version 2.0 */
+  hex2(address, s.address);
+  hex2(0x46, s.device); /* It's a battery */
+  hex2(command, s.function);
 
   assert(info_length < 4095);
   memcpy(i, info, info_length);
   i += info_length;
 
   /*
-   * length_code is the ASCII representation of the length of the data in .info and
+   * length is the ASCII representation of the length of the data in .info and
    * a checksum
    */
-  unsigned int sum = ((info_length >> 8) & 0xf) + ((info_length >> 4) & 0x0f) + (info_length & 0x0f);
-  const unsigned int length_id = ((((~(sum & 0xff)) + 1) << 12) & 0xf000) \
-   | (info_length & 0x0fff);
-  hex4(length_id, s.length_code);
+  unsigned int length_id = length_checksum(info_length) | (info_length & 0x0fff);
+  hex4(length_id, s.length);
 
-  /* Place a 4-character ASCII checksum at the end of the info data */
-  sum = 0;
-
-  for ( const char * b = s.version_code; b < i; b++ ) {
-    sum += *b;
-  }
-
-  const unsigned int checksum = (~sum) + 1;
-
-  hex4(checksum, i);
+  hex4(overall_checksum(s.version, info_length + 17), i);
   i += 4;
 
   /* Terminate the packet with a carriage-return */
@@ -144,29 +201,15 @@ bms_command(
   tcdrain(fd);
 
   /*
-   * There should always be at least 18 bytes in a properly-formed packet.
-   * at that point, we can parse the packet for correctness, read any additional
-   * data indicated by the length code, and parse the final checksum for correctness.
-   * We also should be draining any spurious characters from the wire before 
-   * we send our command, and, once we send our command, we should drain anything
-   * that's not a properly formatted packet.
-   *
-   * If the battery puts itself into hibernation, it responds for a few seconds
-   * before the controller shuts down. So, we should poll it every second, and
-   * save the last data, and the time of last response, to display to the user
-   * so that they know what happened (presuming there is another power source
-   * to keep the computer running).
-   */
-
-  /*
    * Becuase of the tcdrain() above, the BMC should have the command.
+   * There should always be at least 18 bytes in a properly-formed packet.
    * Timeout of the read here is an unusual event, and likely means that the BMC got
    * unplugged or went into hibernation.
    * FIX: Use sigaction instead of signal.
    */
   signal(SIGALRM, got_alarm);
   alarm(10);
-  result = read(fd, response, 18);
+  result = read(fd, r, 18);
   alarm(0);
   signal(SIGALRM, SIG_DFL);
   /*
@@ -178,9 +221,24 @@ bms_command(
    * If data is valid, and there's more data, read the rest of the packet here.
    * Then validate the overall checksum.
    */
-  
-     
+/*
+  int version = hex2toi(r->version);
+  int response = hex2toi(r->function);
+  int address = hex2toi(r->address);
+  int device = hex2toi(r->device);
+  int status = hex2toi(r->function);
+  int length = hex4toi(r->length);
+  if ( version < 0 || response < 0 || address < 0 || device < 0
+   || status < 0 || length < 0 ) {
+    fprintf(stderr, "Non-hexidecimal character where only hexidecimal was expected.\n");
+  }
 
+  if ( length_checksum(length & 0x0fff) != (length & 0xf000) ) {
+	  fprintf(stderr, "Length code incorrect.");
+	  return -1; 
+  }
+ */
+  
   return 0;
 }
 
@@ -206,7 +264,7 @@ seplos_protocol_version(int fd, unsigned int address)
     return -1.0;
   }
 
-  return (response.version_code[0] - '0') + ((response.version_code[1] - '0') / 10.0);
+  return (response.version[0] - '0') + ((response.version[1] - '0') / 10.0);
 }
 
 int seplos_open(const char * serial_device)
@@ -231,7 +289,7 @@ int seplos_open(const char * serial_device)
 int
 main(int argc, char * * argv)
 {
-  int fd = seplos_open("/dev/ttyUSB0");
+  int fd = seplos_open("/dev/ttyUSB1");
 
   if ( fd < 0 )
     return 1;
