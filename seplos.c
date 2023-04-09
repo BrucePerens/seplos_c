@@ -63,6 +63,22 @@ typedef struct _Seplos_2_0_telemetry {
 } Seplos_2_0_telemetry;
 
 typedef struct _Seplos_2_0_telecommand {
+  uint8_t	data_flag[2];
+  uint8_t	command_group[2];
+  uint8_t	number_of_cells[2];
+  uint8_t	cell_alarm[16][2];
+  uint8_t	number_of_temperatures[2];
+  uint8_t	temperature_alarm[6][2];
+  uint8_t	charge_discharge_current_alarm[2];
+  uint8_t	total_battery_voltage_alarm[2];
+  uint8_t	number_of_custom_alarms[2];
+  uint8_t	alarm_1_through_6[6][2];
+  uint8_t	on_off_state[2];
+  uint8_t	equilibrium_state[2][2];
+  uint8_t	system_state[2];
+  uint8_t	disconnection_state[2][2];
+  uint8_t	alarm_7_and_8[2][2];
+  uint8_t	reserved[6][2];
 } Seplos_2_0_telecommand;
 
 typedef struct _Seplos_2_0 {
@@ -93,35 +109,7 @@ typedef struct _Seplos_2_O_binary {
 
 #define SEPLOS_N_CELLS 16
 #define SEPLOS_N_TEMPERATURES 6
-#define SEPLOS_N_BYTE_ALARMS 24
-#define SEPLOS_N_BIT_ALARMS 73
-
-const char const * seplos_byte_alarm_names[SEPLOS_N_BYTE_ALARMS] = {
-  "Cell alarm 1",
-  "Cell alarm 2",
-  "Cell alarm 3",
-  "Cell alarm 4",
-  "Cell alarm 5",
-  "Cell alarm 6",
-  "Cell alarm 7",
-  "Cell alarm 8",
-  "Cell alarm 9",
-  "Cell alarm 10",
-  "Cell alarm 11",
-  "Cell alarm 12",
-  "Cell alarm 13",
-  "Cell alarm 14",
-  "Cell alarm 15",
-  "Cell alarm 16",
-  "Cell temperature alarm 1",
-  "Cell temperature alarm 2",
-  "Cell temperature alarm 3",
-  "Cell temperature alarm 4",
-  "Environment temperature alarm",
-  "Power temperature alarm 1",
-  "Charge/discharge current alarm",
-  "Total battery voltage alarm"
-};
+#define SEPLOS_N_BIT_ALARMS 64
 
 const char const * seplos_bit_alarm_names[SEPLOS_N_BIT_ALARMS] = {
   /* Alarm event 1 */
@@ -178,10 +166,15 @@ const char const * seplos_bit_alarm_names[SEPLOS_N_BIT_ALARMS] = {
   "Output reverse-polarity protection",
   "Output connection fault",
   0,
-  /*
-   * Skip alarm event 7, the only defined bits are represented as bools
-   * in Seplos_monitoring.
-   */
+  /* Alarm Event 7 */
+  0,
+  0,
+  0,
+  0,
+  "Automatic charging waiting",
+  "Manual charging waiting",
+  0,
+  0,
   /* Alarm Event 8 */
   "EEPROM storage fault",
   "Real Time Clock error",
@@ -191,29 +184,6 @@ const char const * seplos_bit_alarm_names[SEPLOS_N_BIT_ALARMS] = {
   0,
   0,
   0,
-  /*
-   * I don't know if the cell disconnection state happens normally during equalization,
-   * or if it's an error state. I only keep things that are actual alarm conditions
-   * in .bit_alarms[], so if this happens normally, it should be moved to its own array.
-   */
-  /* Disconnection state 1 */
-  "Cell 01 disconnection",
-  "Cell 02 disconnection",
-  "Cell 03 disconnection",
-  "Cell 04 disconnection",
-  "Cell 05 disconnection",
-  "Cell 06 disconnection",
-  "Cell 07 disconnection",
-  "Cell 08 disconnection",
-  /* Disconnection state 2 */
-  "Cell 09 disconnection",
-  "Cell 10 disconnection",
-  "Cell 11 disconnection",
-  "Cell 12 disconnection",
-  "Cell 13 disconnection",
-  "Cell 14 disconnection",
-  "Cell 15 disconnection",
-  "Cell 16 disconnection",
 };
 
 const char const * seplos_temperature_names[SEPLOS_N_TEMPERATURES] = {
@@ -281,9 +251,14 @@ typedef struct _Seplos_monitor {
    * or bit alarms are set, the user software should indicate an alarm state,
    * notify the user, etc.
    */
-  uint8_t	byte_alarm[SEPLOS_N_BYTE_ALARMS];
+  uint8_t	cell_alarm[SEPLOS_N_CELLS];
+  uint8_t	temperature_alarm[SEPLOS_N_TEMPERATURES];
+  uint8_t	charge_discharge_current_alarm;
+  uint8_t	total_battery_voltage_alarm;
+  uint16_t	equilibrium_state;
+  uint16_t	disconnection_state;
   /* Bit alarms are in a bit-field here, rather than bool, to make them quick to scan. */
-  uint32_t	bit_alarms[(SEPLOS_N_BIT_ALARMS / 32) + !!(SEPLOS_N_BIT_ALARMS % 32)];
+  uint32_t	bit_alarm[(SEPLOS_N_BIT_ALARMS / 32) + !!(SEPLOS_N_BIT_ALARMS % 32)];
 } Seplos_monitor;
 
 /* The comments are as SEPLOS documented the names of these commands */
@@ -370,13 +345,13 @@ hex1b(uint8_t c, bool * invalid)
 }
 
 static uint8_t
-hex2b(char ascii[2], bool * invalid)
+hex2b(const char ascii[2], bool * invalid)
 {
   return (hex1b(ascii[0], invalid) << 4) | hex1b(ascii[1], invalid);
 }
 
 static uint16_t
-hex4b(char ascii[4], bool * invalid)
+hex4b(const char ascii[4], bool * invalid)
 {
   return (hex1b(ascii[0], invalid) << 12) | (hex1b(ascii[1], invalid) << 8) | \
    (hex1b(ascii[2], invalid) << 4) | hex1b(ascii[3], invalid);
@@ -608,7 +583,8 @@ seplos_monitor(int fd, unsigned int address, unsigned int pack, Seplos_monitor *
     return -1;
   }
 
-  Seplos_2_0_telemetry * t = &(telemetry.data.telemetry);
+  const Seplos_2_0_telemetry const * t = &(telemetry.data.telemetry);
+  const Seplos_2_0_telecommand const * c = &(telecommand.data.telecommand);
 
   m->number_of_cells = hex2b(t->number_of_cells, &invalid);
 
@@ -620,13 +596,12 @@ seplos_monitor(int fd, unsigned int address, unsigned int pack, Seplos_monitor *
     m->temperature[i] = hex4b(t->temperature[i], &invalid) / 100.0;
   }
 
-
   /* Charge-discharge current is a twos-complement number. */
-  int c = hex4b(t->charge_discharge_current, &invalid);
-  if ( c & 0x8000 )
-    m->charge_discharge_current = (~c) / -100.0;
+  int current = hex4b(t->charge_discharge_current, &invalid);
+  if ( current & 0x8000 )
+    m->charge_discharge_current = (~current) / -100.0;
   else
-    m->charge_discharge_current = c / 100.0;
+    m->charge_discharge_current = current / 100.0;
 
   m->total_battery_voltage = hex4b(t->total_battery_voltage, &invalid) / 100.0;
   m->residual_capacity = hex4b(t->residual_capacity, &invalid) / 100.0;
@@ -636,24 +611,41 @@ seplos_monitor(int fd, unsigned int address, unsigned int pack, Seplos_monitor *
   m->number_of_cycles = hex4b(t->number_of_cycles, &invalid);
   m->state_of_health = hex4b(t->state_of_health, &invalid) / 10.0;
   m->port_voltage = hex4b(t->port_voltage, &invalid) / 100.0;
+
+  for (int i = 0; i < SEPLOS_N_CELLS; i++ ) {
+    m->cell_alarm[i] = hex2b(c->cell_alarm[i], &invalid);
+  }
+  for (int i = 0; i < SEPLOS_N_TEMPERATURES; i++ ) {
+    m->temperature_alarm[i] = hex2b(c->temperature_alarm[i], &invalid);
+  }
+  m->charge_discharge_current_alarm = hex2b(c->charge_discharge_current_alarm, &invalid);
+  m->total_battery_voltage_alarm = hex2b(c->total_battery_voltage_alarm, &invalid);
+
+  m->bit_alarm[0] = hex2b(c->alarm_1_through_6[0], &invalid) \
+   | (hex2b(c->alarm_1_through_6[1], &invalid) << 8) \
+   | (hex2b(c->alarm_1_through_6[2], &invalid) << 16) \
+   | (hex2b(c->alarm_1_through_6[3], &invalid) << 24);
+
+  m->bit_alarm[1] = hex2b(c->alarm_1_through_6[4], &invalid) \
+   | (hex2b(c->alarm_1_through_6[5], &invalid) << 8) \
+   | (hex2b(c->alarm_7_and_8[0], &invalid) << 16) \
+   | (hex2b(c->alarm_7_and_8[1], &invalid) << 24);
+
+  m->equilibrium_state = hex2b(c->equilibrium_state[0], &invalid) \
+   | (hex2b(c->equilibrium_state[1], &invalid) << 8);
+
+  m->disconnection_state = hex2b(c->disconnection_state[0], &invalid) \
+   | (hex2b(c->disconnection_state[1], &invalid) << 8);
 #if 0
-  uint8_t	number_of_cells[2];
-  uint8_t	cell_voltage[16][4];
-  uint8_t	number_of_temperatures[2];
-  uint8_t	temperature[6][4];
-  uint8_t	charge_discharge_current[4];
-  uint8_t	total_battery_voltage[4];
-  uint8_t	residual_capacity[4];
-  uint8_t	number_of_custom_fields[2];
-  uint8_t	battery_capacity[4];
-  uint8_t	state_of_charge[4];
-  uint8_t	rated_capacity[4];
-  uint8_t	number_of_cycles[4];
-  uint8_t	state_of_health[4];
-  uint8_t	port_voltage[4];
+  uint8_t	number_of_custom_alarms[2];
+  uint8_t	alarm_1_through_6[6][2];
+  uint8_t	on_off_state[2];
+  uint8_t	equilibrium_state[2][2];
+  uint8_t	system_state[2];
+  uint8_t	disconnection_state[2][2];
+  uint8_t	alarm_7_and_8[2][2];
+  uint8_t	reserved[6][2];
 #endif
-
-
 }
 
 int
