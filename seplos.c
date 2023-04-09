@@ -92,7 +92,7 @@ typedef struct _Seplos_2_O_binary {
  */
 
 #define SEPLOS_N_CELLS 16
-#define SEPLOS_N_TEMPERATURES 16
+#define SEPLOS_N_TEMPERATURES 6
 #define SEPLOS_N_BYTE_ALARMS 24
 #define SEPLOS_N_BIT_ALARMS 73
 
@@ -271,7 +271,7 @@ typedef struct _Seplos_monitor {
   bool		current_switch;
   bool		heating_switch;
   bool		automatic_charging_waiting;
-  bool		c_charging_waiting;
+  bool		manual_charging_waiting;
   bool		cell_equilibrium[SEPLOS_N_CELLS];
   float		cell_voltage[SEPLOS_N_CELLS];
   float		temperature[SEPLOS_N_TEMPERATURES];
@@ -610,7 +610,7 @@ seplos_monitor(int fd, unsigned int address, unsigned int pack, Seplos_monitor *
 
   Seplos_2_0_telemetry * t = &(telemetry.data.telemetry);
 
-  m->state_of_health = hex4b(t->state_of_health, &invalid) / 10.0;
+  m->number_of_cells = hex2b(t->number_of_cells, &invalid);
 
   for ( int i = 0; i < 16; i++ ) {
     m->cell_voltage[i] = hex4b(t->cell_voltage[i], &invalid) / 1000.0;
@@ -620,41 +620,40 @@ seplos_monitor(int fd, unsigned int address, unsigned int pack, Seplos_monitor *
     m->temperature[i] = hex4b(t->temperature[i], &invalid) / 100.0;
   }
 
+
+  /* Charge-discharge current is a twos-complement number. */
+  int c = hex4b(t->charge_discharge_current, &invalid);
+  if ( c & 0x8000 )
+    m->charge_discharge_current = (~c) / -100.0;
+  else
+    m->charge_discharge_current = c / 100.0;
+
+  m->total_battery_voltage = hex4b(t->total_battery_voltage, &invalid) / 100.0;
+  m->residual_capacity = hex4b(t->residual_capacity, &invalid) / 100.0;
+  m->battery_capacity = hex4b(t->battery_capacity, &invalid) / 100.0;
+  m->state_of_charge = hex4b(t->battery_capacity, &invalid) / 100.0;
+  m->rated_capacity = hex4b(t->rated_capacity, &invalid) / 100.0;
+  m->number_of_cycles = hex4b(t->number_of_cycles, &invalid);
+  m->state_of_health = hex4b(t->state_of_health, &invalid) / 10.0;
+  m->port_voltage = hex4b(t->port_voltage, &invalid) / 100.0;
 #if 0
-  unsigned int	number_of_cells;
-  float		charge_discharge_current;
-  float		total_battery_voltage;
-  float		residual_capacity; /* amp hours */
-  float		battery_capacity; /* amp hours */
-  float		state_of_charge; /* percentage */
-  float		rated_capacity; /* amp hours */
-  unsigned int	number_of_cycles;
-  float		state_of_health; /* Ratio of current maximum charge to rated capacity */
-  float		port_voltage;
-  bool		discharge;
-  bool		charge;
-  bool		floating_charge;
-  bool		standby;
-  bool		shutdown;
-  bool		discharge_switch;
-  bool		charge_switch;
-  bool		current_switch;
-  bool		heating_switch;
-  bool		automatic_charging_waiting;
-  bool		c_charging_waiting;
-  bool		cell_equilibrium[SEPLOS_N_CELLS];
-  float		cell_voltage[SEPLOS_N_CELLS];
-  float		temperature[SEPLOS_N_TEMPERATURES];
-  /*
-   * An alarm state is abnormal. All of the status that would be set in normal
-   * operations is stored elsewhere in this structure, so if any of the byte
-   * or bit alarms are set, the user software should indicate an alarm state,
-   * notify the user, etc.
-   */
-  uint8_t	byte_alarm[SEPLOS_N_BYTE_ALARMS];
-  /* Bit alarms are in a bit-field here, rather than bool, to make them quick to scan. */
-  uint32_t	bit_alarms[(SEPLOS_N_BIT_ALARMS / 32) + !!(SEPLOS_N_BIT_ALARMS % 32)];
+  uint8_t	number_of_cells[2];
+  uint8_t	cell_voltage[16][4];
+  uint8_t	number_of_temperatures[2];
+  uint8_t	temperature[6][4];
+  uint8_t	charge_discharge_current[4];
+  uint8_t	total_battery_voltage[4];
+  uint8_t	residual_capacity[4];
+  uint8_t	number_of_custom_fields[2];
+  uint8_t	battery_capacity[4];
+  uint8_t	state_of_charge[4];
+  uint8_t	rated_capacity[4];
+  uint8_t	number_of_cycles[4];
+  uint8_t	state_of_health[4];
+  uint8_t	port_voltage[4];
 #endif
+
+
 }
 
 int
