@@ -29,6 +29,7 @@
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <math.h>
 #include <poll.h>
 #include <signal.h>
 #include <stdarg.h>
@@ -41,16 +42,42 @@
 #include <termios.h>
 #include <unistd.h>
 
-struct _Seplos_2_0 {
+typedef struct _Seplos_2_0_telemetry {
+  uint8_t	data_flag[2];
+  uint8_t	command_group[2];
+  uint8_t	number_of_cells[2];
+  uint8_t	cell_voltage[16][4];
+  uint8_t	number_of_temperatures[2];
+  uint8_t	temperature[6][4];
+  uint8_t	charge_discharge_current[4];
+  uint8_t	total_battery_voltage[4];
+  uint8_t	residual_capacity[4];
+  uint8_t	number_of_custom_fields[2];
+  uint8_t	battery_capacity[4];
+  uint8_t	state_of_charge[4];
+  uint8_t	rated_capacity[4];
+  uint8_t	number_of_cycles[4];
+  uint8_t	state_of_health[4];
+  uint8_t	port_voltage[4];
+  uint8_t	reserved[4][4];
+} Seplos_2_0_telemetry;
+
+typedef struct _Seplos_2_0_telecommand {
+} Seplos_2_0_telecommand;
+
+typedef struct _Seplos_2_0 {
   char  start;      /* Always '~' */
   char  version[2]; /* Always '2', '0' for protocol version 2.0 */
   char  address[2]; /* ASCII value from '0' to '15' */
   char  device[2];  /* Always '4', '6' for a battery */
   char  function[2];/* Command or reply ID */
   char  length[4];  /* Length (12 bits) and length checksum (4 bits). */
-  char  info[4095 + 4 + 1];/* "info" field, checksum, 0xD to end the packet */
-};
-typedef struct _Seplos_2_0 Seplos_2_0;
+  union _data {
+    char  info[4095 + 4 + 1];/* "info" field, checksum, 0xD to end the packet */
+    Seplos_2_0_telemetry telemetry;
+    Seplos_2_0_telecommand telecommand;
+  } data;
+} Seplos_2_0;
 
 typedef struct _Seplos_2_O_binary {
   uint8_t	version;
@@ -427,7 +454,7 @@ bms_command(
   encoded.start = '~';
   assert(info_length < 4096);
 
-  uint8_t * i = encoded.info;
+  uint8_t * i = encoded.data.info;
   memcpy(i, info, info_length);
   i += info_length;
 
@@ -489,7 +516,7 @@ bms_command(
   r.length &= 0x0fff;
   
   if ( r.length > 0 ) {
-    ret = read_serial(fd, &(result->info[5]), r.length);
+    ret = read_serial(fd, &(result->data.info[5]), r.length);
     if ( ret != r.length ) {
       error("Info read: %s\n", strerror(errno));
       return -1;
@@ -497,14 +524,14 @@ bms_command(
   }
   
   for ( unsigned int j = 0; j < r.length + 4; j++ ) {
-    uint8_t c = result->info[j];
+    uint8_t c = result->data.info[j];
     if ( !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) ) {
       error("Non-hexidecimal character where only hexidecimal was expected.\n");
       return -1;
     }
   }
 
-  checksum = hex4b(&(result->info[r.length]), &invalid);
+  checksum = hex4b(&(result->data.info[r.length]), &invalid);
   if ( invalid || checksum != overall_checksum(result->version, r.length + 12) ) {
     error("Checksum mismatch.\n");
     return -1;
@@ -544,64 +571,89 @@ seplos_protocol_version(int fd, unsigned int address)
   return ((version >> 4) & 0xf) + ((version & 0xf) * 0.1);
 }
 
-static int
-telemetry(int fd, unsigned int address, unsigned int pack)
+int
+seplos_monitor(int fd, unsigned int address, unsigned int pack, Seplos_monitor * m)
 {
-  Seplos_2_0	response = {};
+  Seplos_2_0	telemetry = {};
+  Seplos_2_0	telecommand = {};
   uint8_t	pack_info[2];
+  bool		invalid;
 
   hex2(pack, pack_info);
 
-  const unsigned int status = bms_command(
+  int status = bms_command(
    fd,
    address,		/* Address */
    TELEMETRY_GET,	/* command */
    &pack_info,		/* pack number */
    sizeof(pack_info),	/* length of the above */
-   &response);
+   &telemetry);
 
   if ( status != 0 ) {
     error("Bad response %x from SEPLOS BMS.\n", status);
     return -1;
   }
 
-  bool invalid = false;
-  return 0;
-}
-
-static int
-telecommand(int fd, unsigned int address, unsigned int pack)
-{
-  Seplos_2_0	response = {};
-  uint8_t	pack_info[2];
-
-  hex2(pack, pack_info);
-
-  const unsigned int status = bms_command(
+  status = bms_command(
    fd,
    address,		/* Address */
    TELECOMMAND_GET,	/* command */
    &pack_info,		/* pack number */
    sizeof(pack_info),	/* length of the above */
-   &response);
+   &telecommand);
 
   if ( status != 0 ) {
     error("Bad response %x from SEPLOS BMS.\n", status);
     return -1;
   }
 
-  bool invalid = false;
-  return 0;
-}
+  Seplos_2_0_telemetry * t = &(telemetry.data.telemetry);
 
-int
-seplos_monitor(int fd, unsigned int address, unsigned int pack, Seplos_monitor * m)
-{
-  int ret1 = telemetry(fd, address, pack);
-  int ret2 = telemetry(fd, address, pack);
+  m->state_of_health = hex4b(t->state_of_health, &invalid) / 10.0;
 
-  if ( ret1 != 0 || ret2 != 0 )
-    return -1;
+  for ( int i = 0; i < 16; i++ ) {
+    m->cell_voltage[i] = hex4b(t->cell_voltage[i], &invalid) / 1000.0;
+  }
+
+  for ( int i = 0; i < 6; i++ ) {
+    m->temperature[i] = hex4b(t->temperature[i], &invalid) / 100.0;
+  }
+
+#if 0
+  unsigned int	number_of_cells;
+  float		charge_discharge_current;
+  float		total_battery_voltage;
+  float		residual_capacity; /* amp hours */
+  float		battery_capacity; /* amp hours */
+  float		state_of_charge; /* percentage */
+  float		rated_capacity; /* amp hours */
+  unsigned int	number_of_cycles;
+  float		state_of_health; /* Ratio of current maximum charge to rated capacity */
+  float		port_voltage;
+  bool		discharge;
+  bool		charge;
+  bool		floating_charge;
+  bool		standby;
+  bool		shutdown;
+  bool		discharge_switch;
+  bool		charge_switch;
+  bool		current_switch;
+  bool		heating_switch;
+  bool		automatic_charging_waiting;
+  bool		c_charging_waiting;
+  bool		cell_equilibrium[SEPLOS_N_CELLS];
+  float		cell_voltage[SEPLOS_N_CELLS];
+  float		temperature[SEPLOS_N_TEMPERATURES];
+  /*
+   * An alarm state is abnormal. All of the status that would be set in normal
+   * operations is stored elsewhere in this structure, so if any of the byte
+   * or bit alarms are set, the user software should indicate an alarm state,
+   * notify the user, etc.
+   */
+  uint8_t	byte_alarm[SEPLOS_N_BYTE_ALARMS];
+  /* Bit alarms are in a bit-field here, rather than bool, to make them quick to scan. */
+  uint32_t	bit_alarms[(SEPLOS_N_BIT_ALARMS / 32) + !!(SEPLOS_N_BIT_ALARMS % 32)];
+#endif
 }
 
 int
