@@ -233,18 +233,22 @@ const char const * seplos_temperature_names[SEPLOS_N_TEMPERATURES] = {
  * Alarms are an array, their names are in seplos_byte_alarm_names[] and
  * seplos_bit_alarm_names[]. Byte alarms are normal if 0, 1 means the lower
  * limit was reached, 2 means the upper limit was reached, 0xf0 means
- * "other alarms". Bit alarms are represented as C bool, and are in alarm
- * state if they are true.
+ * "other alarms". Bit alarms are in alarm state if they are set.
  * 
  * The SEPLOS documentation on numeric conversion is confusing.
  * Nothing is in base 10, it's all hexidecimal like the rest of the data.
- * It's all unsigned fixed-point. The number read is divided by:
+ * It's all unsigned fixed-point with one exception, the charge-discharge
+ * current is a twos-complement signed number, fixed-point.
+ *
+ * The point is in various places for different types of value.
+ * The number read is divided by:
  * * 1000.0 for cell voltages
  * * 100.0 for temperatures, and the result is in Kelvin degrees.
  * * 10.0 for the state-of-health.
  *
  * The one lonely integer value, the cycle count, is hexidecimal.
- * I haven't read the time yet.
+ * I haven't read the time from the battery yet. And things like history and
+ * getting/setting configuration values are not documented.
  */
 typedef struct _Seplos_monitor {
   unsigned int	number_of_cells;
