@@ -238,13 +238,13 @@ typedef struct _Seplos_monitor {
   bool		shutdown;
   bool		discharge_switch;
   bool		charge_switch;
-  bool		current_switch;
+  bool		current_limit_switch;
   bool		heating_switch;
-  bool		automatic_charging_waiting;
-  bool		manual_charging_waiting;
   bool		cell_equilibrium[SEPLOS_N_CELLS];
   float		cell_voltage[SEPLOS_N_CELLS];
   float		temperature[SEPLOS_N_TEMPERATURES];
+  uint16_t	equilibrium_state;
+  uint16_t	disconnection_state;
   /*
    * An alarm state is abnormal. All of the status that would be set in normal
    * operations is stored elsewhere in this structure, so if any of the byte
@@ -255,8 +255,6 @@ typedef struct _Seplos_monitor {
   uint8_t	temperature_alarm[SEPLOS_N_TEMPERATURES];
   uint8_t	charge_discharge_current_alarm;
   uint8_t	total_battery_voltage_alarm;
-  uint16_t	equilibrium_state;
-  uint16_t	disconnection_state;
   /* Bit alarms are in a bit-field here, rather than bool, to make them quick to scan. */
   uint32_t	bit_alarm[(SEPLOS_N_BIT_ALARMS / 32) + !!(SEPLOS_N_BIT_ALARMS % 32)];
 } Seplos_monitor;
@@ -636,6 +634,20 @@ seplos_monitor(int fd, unsigned int address, unsigned int pack, Seplos_monitor *
 
   m->disconnection_state = hex2b(c->disconnection_state[0], &invalid) \
    | (hex2b(c->disconnection_state[1], &invalid) << 8);
+
+  uint8_t state = hex2b(c->on_off_state, &invalid);
+  m->discharge_switch = !!(state & 0x01);
+  m->charge_switch = !!(state & 0x02);
+  m->current_limit_switch = !!(state & 0x04);
+  m->heating_switch = !!(state & 0x08);
+
+  state = hex2b(c->system_state, &invalid);
+  m->discharge = (state & 0x01);
+  m->charge = (state & 0x02);
+  m->floating_charge = (state & 0x04);
+  m->standby = (state & 0x10);
+  m->shutdown = (state & 0x20);
+
 #if 0
   uint8_t	number_of_custom_alarms[2];
   uint8_t	alarm_1_through_6[6][2];
