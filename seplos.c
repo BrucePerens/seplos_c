@@ -19,6 +19,40 @@
  *   some issues of what is a normal vs. alarm condition, and how the numeric
  *   conversions actually work, will wait until I have the battery installed at
  *   my remote site.
+ *
+ * WARNING:
+ * Please read the legal disclaimer in the file LICENSE. This section does not
+ * limit that disclaimer.
+ *
+ * The battery and this software should be handled only by a person who is properly
+ * trained in all of the risk presented by a high-energy system.
+ *
+ * You may damage your battery through use of this software, or cause other damage,
+ * including to life and property. Lithium batteries can catch fire, and can expel
+ * noxious or toxic gas or liquid. High-current circuits may catch fire. There is
+ * risk of electric shock, burns, or degloving injury (look it up) due to high
+ * temperature caused by high current across jewelery or other conductors, and
+ * blindness, burns, or other injury caused by arc-flash.
+ *
+ * When working on the battery or the system connected to it:
+ *  *  Do not touch any conductor that might be connected, directly or indirectly,
+ *     to the battery.
+ *
+ *  *  Take proper precaution against electric shock, high-temperature burns, and
+ *     arc-flash.
+ *
+ *  *  Disable the battery using _both_ its manual circuit breaker and its facility
+ *     to hibernate, along with any similar facilites of your equipment.
+ *
+ *  *  Do not wear jewelery in the presence of electrical systems that can sustain a
+ *     high current or voltage. Even in systems with a voltage considered "safe",
+ *     high current can cause a degloving injury. Photos of degloving injuries are
+ *     available on the net, and are very disturbing.
+ *
+ *    Protect yourself by using insulating gloves and shoes with non-conductive soles.
+ *
+ * This software has bugs, failures, and limitations, both known and unknown.
+ * It is not possible for software this complicated to be without them.
  */
 
 #include <assert.h>
