@@ -14,16 +14,20 @@
  * properly called an ASCII-over-RS-485 protocol. Modbus-ASCII packets start with ':'
  * rather than the '~' used by SEPLOS, and the packet format is entirely different.
  *
+ * WARNING:
+ * The battery is a high-energy device. It's dangerous!
+ * Please read the warnings in the README file carefully and completely.
+ *
  * Limitations:
+ * * Many of the states have not been tested. I probably can't test them without
+ *   writing a battery simulator.
+ *
  * * I haven't tested this with a second battery connected to the first.
  * * At this writing, I've not installed the battery where the charger is. Thus
  *   some issues of what is a normal vs. alarm condition, and how the numeric
  *   conversions actually work, will wait until I have the battery installed at
  *   my remote site.
  *
- * WARNING:
- * The battery is a high-energy device. It's dangerous!
- * Please read the warnings in the README file carefully and completely.
  */
 
 #include <assert.h>
@@ -647,17 +651,6 @@ seplos_monitor(int fd, unsigned int address, unsigned int pack, Seplos_monitor *
   m->floating_charge = (state & 0x04);
   m->standby = (state & 0x10);
   m->shutdown = (state & 0x20);
-
-#if 0
-  uint8_t	number_of_custom_alarms[2];
-  uint8_t	alarm_1_through_6[6][2];
-  uint8_t	on_off_state[2];
-  uint8_t	equilibrium_state[2][2];
-  uint8_t	system_state[2];
-  uint8_t	disconnection_state[2][2];
-  uint8_t	alarm_7_and_8[2][2];
-  uint8_t	reserved[6][2];
-#endif
 }
 
 int
@@ -680,6 +673,95 @@ seplos_open(const char * serial_device)
   return fd;
 }
 
+void
+seplos_text(FILE * f, const Seplos_monitor const * m)
+{
+  bool	got_alarm = false;
+  bool  alarm_test = false;
+
+  for ( unsigned int i = 0; i < SEPLOS_N_CELLS; i++ ) {
+    if ( m->cell_alarm[i] ) {
+      alarm_test = true;
+      got_alarm = true;
+      break;
+    }
+  }
+  if ( alarm_test ) {
+    fprintf(f, "!!! ALARM !!! - There is a an issue with one of the battery cells.\n");
+    fprintf(f, "Resolve this immediately, it can damage the battery.\n");
+    for ( unsigned int i = 0; i < SEPLOS_N_CELLS; i++ ) {
+      uint8_t value = m->cell_alarm[i];
+  
+      if ( value != 0 ) {
+        const char * s = "undefined alarm state.";
+  
+        switch ( value ) {
+        case 1:
+          s = "exhausted: voltage was depleted below the lower limit.";
+          break;
+        case 2:
+          s = "overcharged: voltage has exceeded the upper limit.";
+          break;
+        case 0xF0:
+          s = "controller reports \"other\" error state.\n";
+          break;
+        }
+         
+        fprintf(f, "Cell %d: %s\n", i, s);
+      }
+    }
+  }
+
+  bool high_temperature = false;
+  bool low_temperature = false;
+  alarm_test = false;
+  for ( unsigned int i = 0; i < SEPLOS_N_TEMPERATURES; i++ ) {
+    uint8_t value = m->temperature[i];
+    if ( value != 0 ) {
+      got_alarm = true;
+      switch ( value ) {
+      case 1:
+        low_temperature = true;
+        break;
+      case 2:
+        high_temperature = true;
+        break;
+      }
+    }
+  }
+
+  if ( alarm_test ) {
+    fprintf(f, "!!! ALARM !!! - The battery temperature is out of bounds.\n");
+    if ( high_temperature )
+      fprintf(f, "High temperature! Resolve this immediately, it can damage the battery.\n");
+    else if ( low_temperature )
+      fprintf(f, "Low temperature! The battery will not charge, and will not provide much current.\n");
+
+    for ( unsigned int i = 0; i < SEPLOS_N_TEMPERATURES; i++ ) {
+      uint8_t value = m->temperature_alarm[i];
+
+      if ( value != 0 ) {
+        fprintf(f, "%s: \n", seplos_temperature_names[i]);
+        const char * s = "undefined temperature state.";
+ 
+        switch ( value ) {
+        case 1:
+          s = "too cold: below the lower limit.";
+          break;
+        case 2:
+          s = "too hot: above the upper limit.";
+          break;
+        case 0xF0:
+          s = "controller reports \"other\" error state.\n";
+        }
+        
+        fprintf(f, "Cell %d: %s\n", s);
+      }
+    }
+  }
+  alarm_test = false;
+}
+
 int
 main(int argc, char * * argv)
 {
@@ -690,5 +772,6 @@ main(int argc, char * * argv)
     return 1;
 
   seplos_monitor(fd, 0, 0x01, &m);
+  seplos_text(stdout, &m);
   return 0;
 }
