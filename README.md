@@ -37,3 +37,8 @@ C library and tools for SEPLOS BMS (Battery Management System) using their proto
 > 
 > This software has bugs, omissions, failures, and limitations, both known and
 > unknown. It is not possible for software this complicated to be without them.
+> This software may cause the battery to work in incorrect, dangerous, damaging,
+> or unpredictable ways.
+>
+> Deliberately changing the parameters of your battery is likely to result in
+> danger or damage.
