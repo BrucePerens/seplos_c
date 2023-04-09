@@ -8,7 +8,7 @@ C library and tools for SEPLOS BMS (Battery Management System) using their proto
 >  
 > **The battery is a high-energy device. _It's dangerous!_**
 >
-> The battery and this software should be handled only by a person who is properly
+> The battery and this software should be handled only by a person who is fully
 > trained in all of the risk presented by a high-energy system.
 >  
 > You may damage your battery through use of this software, or cause other damage,
@@ -20,15 +20,15 @@ C library and tools for SEPLOS BMS (Battery Management System) using their proto
 >  
 > When working on the battery or the system connected to it:
 > 
->  *  Do not touch any conductor that might be connected, directly or indirectly,
->     to the battery.
-> 
->  *  Take proper precaution against electric shock, high-temperature burns, and
+>  *  Take all proper precautions against electric shock, high-temperature burns, and
 >     arc-flash.
 >  
 >  *  Disable the battery using _both_ its manual circuit breaker and its facility
 >     to hibernate, along with any similar facilites of your equipment.
 >  
+>  *  Do not touch any conductor that might be connected, directly or indirectly,
+>     to the battery or other energized circuits.
+> 
 >  *  Do not wear jewelery in the presence of electrical systems that can sustain a
 >     high current or voltage. Even in systems with a voltage considered "safe",
 >     high current can cause a degloving injury. Photos of degloving injuries are
@@ -37,9 +37,12 @@ C library and tools for SEPLOS BMS (Battery Management System) using their proto
 >  * Protect yourself by using insulating gloves, shoes with non-conductive soles,
 >    and an insulating helmet.
 >
+>  * Have a second person present, who is trained and able to help you if you
+>    are shocked or injured. Go over what you plan to do with that person before
+>    you act.
+>
 >  * Maintain situational awareness and think for yourself! There are additional
->    hazards, both known and unknown. Go over what you are doing and the possible
->    risks before you act.
+>    hazards, both known and unknown.
 >
 >  * Don't rush or skip precautions.
 > 
