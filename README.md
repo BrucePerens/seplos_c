@@ -6,6 +6,8 @@ C library and tools for SEPLOS BMS (Battery Management System) using their proto
 > Please read the legal disclaimer in the file LICENSE. This section does not
 > limit that disclaimer.
 >  
+> **The battery is a high-energy device. _It's dangerous!_**
+>
 > The battery and this software should be handled only by a person who is properly
 > trained in all of the risk presented by a high-energy system.
 >  
@@ -31,9 +33,15 @@ C library and tools for SEPLOS BMS (Battery Management System) using their proto
 >     high current or voltage. Even in systems with a voltage considered "safe",
 >     high current can cause a degloving injury. Photos of degloving injuries are
 >     available on the net, and are very disturbing.
->  *
->    Protect yourself by using insulating gloves, shoes with non-conductive soles,
+>
+>  * Protect yourself by using insulating gloves, shoes with non-conductive soles,
 >    and an insulating helmet.
+>
+>  * Maintain situational awareness and think for yourself! There are additional
+>    hazards, both known and unknown. Go over what you are doing and the possible
+>    risks before you act.
+>
+>  * Don't rush or skip precautions.
 > 
 > This software has bugs, omissions, failures, and limitations, both known and
 > unknown. It is not possible for software this complicated to be without them.
