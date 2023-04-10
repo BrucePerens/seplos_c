@@ -225,6 +225,52 @@ const char const * seplos_temperature_names[SEPLOS_N_TEMPERATURES] = {
  * getting/setting configuration values are not documented.
  */
 typedef struct _Seplos_monitor {
+  /*
+   * has_alarm will be true if cell, temperature, voltage, current, bit alarms,
+   * depleted, overcharge, cold, or hot are true.
+   */
+  bool		has_alarm;
+  /*
+   * This is true if any of the byte alarms are 0xf0, or any value other than
+   * 1 and 2.
+   */
+  bool		other_or_undocumented_alarm_state;
+
+  bool		has_cell_alarm;
+  /*
+   * cold or hot will be true if any of temperature alarms indicate cold or hot.
+   */
+  bool		has_temperature_alarm;
+  /*
+   * This will be true if charge_discharge_current or total_battery_voltage are
+   * in any alarm state. It doesn't indicate any of the cell voltage alarms.
+   */
+  bool		has_voltage_or_current_alarm;
+  /*
+   * This will be true if any of the 64 bit alarms are true.
+   */
+  bool		has_bit_alarm;
+  /*
+   * This will be true if any of cell_alarm[*] or total_battery_voltage indicates
+   * a low-voltage limit hit. 
+   */
+  bool		depleted; /* A cell or the battery voltage is too low. */
+  /*
+   * This will be true if any of cell_alarm[*] or total_battery_voltage indicates
+   * a high-voltage limit hit. 
+   */
+  bool		overcharge; /* A cell or the battery voltage is too high. */
+
+  /*
+   * This will be true if any of the temperature alarms indicate the low temperature
+   * limit hit. 
+   */
+  bool		cold; /* One of the temperature sensors is too cold. */
+  /*
+   * This will be true if any of the temperature alarms indicate the high temperature
+   * limit hit. 
+   */
+  bool		hot; /* One of the temperature sensors is too hot. */
   unsigned int	number_of_cells;
   float		charge_discharge_current;
   float		total_battery_voltage;
@@ -280,8 +326,14 @@ enum _seplos_commands {
   REGULAR_RECORDING =  0xA2     /* Regular recording */
 };
 
+enum _seplos_byte_alarm_value {
+  NORMAL = 0x00,
+  LOW_LIMIT_HIT = 1,
+  HIGH_LIMIT_HIT = 2,
+  OTHER_ALARM = 0xf0
+};
 enum _seplos_response {
-  NORMAL = 0x00,                 /* Normal response */
+  /* NORMAL = 0x00,                 Normal response. Same as above, don't redeclare */
   VERSION_ERROR = 0x01,          /* Protocol version error */
   CHECKSUM_ERROR = 0x02,         /* Checksum error */
   LENGTH_CHECKSUM_ERROR = 0x03,  /* Checksum value in length field error */
@@ -538,7 +590,7 @@ seplos_protocol_version(int fd, unsigned int address)
    sizeof(pack_info),	/* length of the above */
    &response);
 
-  if ( status != 0 ) {
+  if ( status != NORMAL ) {
     error("Bad response %x from SEPLOS BMS.\n", status);
     return -1.0;
   }
@@ -567,7 +619,7 @@ seplos_monitor(int fd, unsigned int address, unsigned int pack, Seplos_monitor *
    sizeof(pack_info),	/* length of the above */
    &telemetry);
 
-  if ( status != 0 ) {
+  if ( status != NORMAL ) {
     error("Bad response %x from SEPLOS BMS.\n", status);
     return -1;
   }
@@ -651,6 +703,65 @@ seplos_monitor(int fd, unsigned int address, unsigned int pack, Seplos_monitor *
   m->floating_charge = (state & 0x04);
   m->standby = (state & 0x10);
   m->shutdown = (state & 0x20);
+
+  for ( unsigned int i = 0; i < SEPLOS_N_CELLS; i++ ) {
+    const uint8_t value = m->cell_alarm[i];
+    if ( value != 0 ) {
+      m->has_alarm = m->has_cell_alarm = true;
+      switch ( value ) {
+      case LOW_LIMIT_HIT:
+        m->depleted = true;
+        break;
+      case HIGH_LIMIT_HIT:
+        m->overcharge = true;
+        break;
+      case OTHER_ALARM:
+      default:
+        m->other_or_undocumented_alarm_state = true;
+      }
+      break;
+    }
+  }
+  if ( m->total_battery_voltage_alarm != NORMAL ) {
+    m->has_alarm = m->has_voltage_or_current_alarm = true;
+    switch ( m->total_battery_voltage_alarm ) {
+      case LOW_LIMIT_HIT:
+        m->depleted = true;
+        break;
+      case HIGH_LIMIT_HIT:
+        m->overcharge = true;
+        break;
+      case OTHER_ALARM:
+      default:
+        m->other_or_undocumented_alarm_state = true;
+    }
+  }
+
+  for ( unsigned int i = 0; i < SEPLOS_N_TEMPERATURES; i++ ) {
+    const uint8_t value = m->temperature_alarm[i];
+    if ( value != NORMAL ) {
+      m->has_alarm = m->has_temperature_alarm = true;
+      switch ( value ) {
+      case LOW_LIMIT_HIT:
+        m->cold = true;
+        break;
+      case HIGH_LIMIT_HIT:
+        m->hot = true;
+        break;
+      case OTHER_ALARM:
+      default:
+        m->other_or_undocumented_alarm_state = true;
+        break;
+      }
+    }
+  }
+
+  for ( int i = 0; i < (sizeof(m->bit_alarm) / sizeof(*(m->bit_alarm))); i++ ) {
+    if ( m->bit_alarm[i] ) {
+      m->has_alarm = m->has_bit_alarm = true;
+      break;
+    }
+  }
 }
 
 int
@@ -679,20 +790,13 @@ seplos_text(FILE * f, const Seplos_monitor const * m)
   bool	got_alarm = false;
   bool  alarm_test = false;
 
-  for ( unsigned int i = 0; i < SEPLOS_N_CELLS; i++ ) {
-    if ( m->cell_alarm[i] ) {
-      alarm_test = true;
-      got_alarm = true;
-      break;
-    }
-  }
   if ( alarm_test ) {
     fprintf(f, "!!! ALARM !!! - There is a an issue with one of the battery cells.\n");
     fprintf(f, "Resolve this immediately, it can damage the battery.\n");
     for ( unsigned int i = 0; i < SEPLOS_N_CELLS; i++ ) {
       uint8_t value = m->cell_alarm[i];
   
-      if ( value != 0 ) {
+      if ( value != NORMAL ) {
         const char * s = "undefined alarm state.";
   
         switch ( value ) {
@@ -710,25 +814,12 @@ seplos_text(FILE * f, const Seplos_monitor const * m)
         fprintf(f, "Cell %d: %s\n", i, s);
       }
     }
+    fprintf(f, "\n");
   }
 
   bool high_temperature = false;
   bool low_temperature = false;
   alarm_test = false;
-  for ( unsigned int i = 0; i < SEPLOS_N_TEMPERATURES; i++ ) {
-    uint8_t value = m->temperature[i];
-    if ( value != 0 ) {
-      got_alarm = true;
-      switch ( value ) {
-      case 1:
-        low_temperature = true;
-        break;
-      case 2:
-        high_temperature = true;
-        break;
-      }
-    }
-  }
 
   if ( alarm_test ) {
     fprintf(f, "!!! ALARM !!! - The battery temperature is out of bounds.\n");
@@ -740,7 +831,7 @@ seplos_text(FILE * f, const Seplos_monitor const * m)
     for ( unsigned int i = 0; i < SEPLOS_N_TEMPERATURES; i++ ) {
       uint8_t value = m->temperature_alarm[i];
 
-      if ( value != 0 ) {
+      if ( value != NORMAL ) {
         fprintf(f, "%s: \n", seplos_temperature_names[i]);
         const char * s = "undefined temperature state.";
  
@@ -758,6 +849,7 @@ seplos_text(FILE * f, const Seplos_monitor const * m)
         fprintf(f, "Cell %d: %s\n", s);
       }
     }
+    fprintf(f, "\n");
   }
   alarm_test = false;
 }
