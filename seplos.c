@@ -92,11 +92,11 @@ typedef struct _Seplos_2_0 {
   char  device[2];  /* Always '4', '6' for a battery */
   char  function[2];/* Command or reply ID */
   char  length[4];  /* Length (12 bits) and length checksum (4 bits). */
-  union _data {
+  union {
     char  info[4095 + 4 + 1];/* "info" field, checksum, 0xD to end the packet */
     Seplos_2_0_telemetry telemetry;
     Seplos_2_0_telecommand telecommand;
-  } data;
+  };
 } Seplos_2_0;
 
 typedef struct _Seplos_2_O_binary {
@@ -225,6 +225,9 @@ const char const * seplos_temperature_names[SEPLOS_N_TEMPERATURES] = {
  * getting/setting configuration values are not documented.
  */
 typedef struct _Seplos_monitor {
+  uint8_t	controller_address;
+  uint8_t	battery_pack_number;
+
   /*
    * has_alarm will be true if cell, temperature, voltage, current, bit alarms,
    * depleted, overcharge, cold, or hot are true.
@@ -484,7 +487,7 @@ bms_command(
   encoded.start = '~';
   assert(info_length < 4096);
 
-  uint8_t * i = encoded.data.info;
+  uint8_t * i = encoded.info;
   memcpy(i, info, info_length);
   i += info_length;
 
@@ -546,7 +549,7 @@ bms_command(
   r.length &= 0x0fff;
   
   if ( r.length > 0 ) {
-    ret = read_serial(fd, &(result->data.info[5]), r.length);
+    ret = read_serial(fd, &(result->info[5]), r.length);
     if ( ret != r.length ) {
       error("Info read: %s\n", strerror(errno));
       return -1;
@@ -554,14 +557,14 @@ bms_command(
   }
   
   for ( unsigned int j = 0; j < r.length + 4; j++ ) {
-    uint8_t c = result->data.info[j];
+    uint8_t c = result->info[j];
     if ( !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) ) {
       error("Non-hexidecimal character where only hexidecimal was expected.\n");
       return -1;
     }
   }
 
-  checksum = hex4b(&(result->data.info[r.length]), &invalid);
+  checksum = hex4b(&(result->info[r.length]), &invalid);
   if ( invalid || checksum != overall_checksum(result->version, r.length + 12) ) {
     error("Checksum mismatch.\n");
     return -1;
@@ -637,8 +640,11 @@ seplos_monitor(int fd, unsigned int address, unsigned int pack, Seplos_monitor *
     return -1;
   }
 
-  const Seplos_2_0_telemetry const * t = &(telemetry.data.telemetry);
-  const Seplos_2_0_telecommand const * c = &(telecommand.data.telecommand);
+  const Seplos_2_0_telemetry const * t = &(telemetry.telemetry);
+  const Seplos_2_0_telecommand const * c = &(telecommand.telecommand);
+
+  m->controller_address = address;
+  m->battery_pack_number = pack;
 
   m->number_of_cells = hex2b(t->number_of_cells, &invalid);
 
@@ -704,6 +710,33 @@ seplos_monitor(int fd, unsigned int address, unsigned int pack, Seplos_monitor *
   m->standby = (state & 0x10);
   m->shutdown = (state & 0x20);
 
+  if ( m->total_battery_voltage_alarm != NORMAL ) {
+    m->has_alarm = m->has_voltage_or_current_alarm = true;
+    switch ( m->total_battery_voltage_alarm ) {
+    case LOW_LIMIT_HIT:
+      m->depleted = true;
+      break;
+    case HIGH_LIMIT_HIT:
+      m->overcharge = true;
+      break;
+    case OTHER_ALARM:
+    default:
+      m->other_or_undocumented_alarm_state = true;
+    }
+  }
+
+  if ( m->charge_discharge_current_alarm != NORMAL ) {
+    m->has_alarm = m->has_voltage_or_current_alarm = true;
+    switch ( m->charge_discharge_current_alarm ) {
+    case LOW_LIMIT_HIT:
+    case HIGH_LIMIT_HIT:
+      break;
+    case OTHER_ALARM:
+    default:
+      m->other_or_undocumented_alarm_state = true;
+    }
+  }
+
   for ( unsigned int i = 0; i < SEPLOS_N_CELLS; i++ ) {
     const uint8_t value = m->cell_alarm[i];
     if ( value != 0 ) {
@@ -720,20 +753,6 @@ seplos_monitor(int fd, unsigned int address, unsigned int pack, Seplos_monitor *
         m->other_or_undocumented_alarm_state = true;
       }
       break;
-    }
-  }
-  if ( m->total_battery_voltage_alarm != NORMAL ) {
-    m->has_alarm = m->has_voltage_or_current_alarm = true;
-    switch ( m->total_battery_voltage_alarm ) {
-      case LOW_LIMIT_HIT:
-        m->depleted = true;
-        break;
-      case HIGH_LIMIT_HIT:
-        m->overcharge = true;
-        break;
-      case OTHER_ALARM:
-      default:
-        m->other_or_undocumented_alarm_state = true;
     }
   }
 
@@ -787,6 +806,7 @@ seplos_open(const char * serial_device)
 void
 seplos_text(FILE * f, const Seplos_monitor const * m)
 {
+  fprintf(f, "Controller %x, battery pack %x:\n", m->controller_address, m->battery_pack_number);
   if ( m->has_alarm ) {
     fprintf(f, "!!! ALARM !!! - The battery indicates an alarm state.\n");
     fprintf(f, "Resolve this issue ASAP, or the battery may be damaged.\n");
@@ -889,6 +909,9 @@ seplos_text(FILE * f, const Seplos_monitor const * m)
         }
       }
     }
+  }
+  else {
+    fprintf(f, "No Alarms.\n");
   }
 }
 
