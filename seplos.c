@@ -274,6 +274,17 @@ typedef struct _Seplos_monitor {
    * limit hit. 
    */
   bool		hot; /* One of the temperature sensors is too hot. */
+
+  /*
+   * The highest temperature reported by the 6 temperature sensors.
+   */
+  float		highest_temperature;
+
+  /*
+   * The highest temperature reported by the 6 temperature sensors.
+   */
+  float		lowest_temperature;
+
   unsigned int	number_of_cells;
   float		charge_discharge_current;
   float		total_battery_voltage;
@@ -293,7 +304,6 @@ typedef struct _Seplos_monitor {
   bool		charge_switch;
   bool		current_limit_switch;
   bool		heating_switch;
-  bool		cell_equilibrium[SEPLOS_N_CELLS];
   float		cell_voltage[SEPLOS_N_CELLS];
   float		temperature[SEPLOS_N_TEMPERATURES];
   uint16_t	equilibrium_state;
@@ -652,8 +662,14 @@ seplos_monitor(int fd, unsigned int address, unsigned int pack, Seplos_monitor *
     m->cell_voltage[i] = hex4b(t->cell_voltage[i], &invalid) / 1000.0;
   }
 
+  m->lowest_temperature = m->highest_temperature = hex4b(t->temperature[0], &invalid) / 100.0;
   for ( int i = 0; i < 6; i++ ) {
-    m->temperature[i] = hex4b(t->temperature[i], &invalid) / 100.0;
+    const float value = hex4b(t->temperature[i], &invalid) / 100.0;
+    m->temperature[i] = value;
+    if ( value > m->highest_temperature )
+      m->highest_temperature = value;
+    if ( value < m->lowest_temperature )
+      m->lowest_temperature = value;
   }
 
   /* Charge-discharge current is a twos-complement number. */
@@ -666,7 +682,7 @@ seplos_monitor(int fd, unsigned int address, unsigned int pack, Seplos_monitor *
   m->total_battery_voltage = hex4b(t->total_battery_voltage, &invalid) / 100.0;
   m->residual_capacity = hex4b(t->residual_capacity, &invalid) / 100.0;
   m->battery_capacity = hex4b(t->battery_capacity, &invalid) / 100.0;
-  m->state_of_charge = hex4b(t->battery_capacity, &invalid) / 100.0;
+  m->state_of_charge = hex4b(t->state_of_charge, &invalid) / 10.0;
   m->rated_capacity = hex4b(t->rated_capacity, &invalid) / 100.0;
   m->number_of_cycles = hex4b(t->number_of_cycles, &invalid);
   m->state_of_health = hex4b(t->state_of_health, &invalid) / 10.0;
@@ -803,6 +819,41 @@ seplos_open(const char * serial_device)
   return fd;
 }
 
+static float
+farenheit(float c)
+{
+  return (c * 1.8) + 32;
+}
+static void
+cell_state_text(FILE * f, const Seplos_monitor const * m, int offset)
+{
+  fprintf(f, "Cell:         ");
+  for ( int i = 0; i < 8; i++ ) {
+    fprintf(f, " %2d   ", i + offset);
+  }
+  fprintf(f, "\nVoltage:      ");
+  for ( int i = 0; i < 8; i++ ) {
+    const unsigned int index = i + offset;
+    fprintf(f, "%.3f ", m->cell_voltage[index]);
+  }
+  fprintf(f, "\nEquilibrium:  ");
+  for ( int i = 0; i < 8; i++ ) {
+    const unsigned int index = i + offset;
+    fprintf(f, "  %c   ", (m->equilibrium_state & (1 << index)) ? '*' : '-');
+  }
+  fprintf(f, "\nDisconnected: ");
+  for ( int i = 0; i < 8; i++ ) {
+    const unsigned int index = i + offset;
+    fprintf(f, "  %c   ", (m->equilibrium_state & (1 << index)) ? '*' : '-');
+  }
+  fprintf(f, "\nTemperature:  ");
+  for ( int i = 0; i < 2; i++ ) {
+    const unsigned int index = i + (offset / 4);
+    fprintf(f, "   %4.0f C, %4.0f F       ", m->temperature[index], farenheit(m->temperature[index]));
+  }
+  fprintf(f, "\n");
+}
+
 void
 seplos_text(FILE * f, const Seplos_monitor const * m)
 {
@@ -909,10 +960,45 @@ seplos_text(FILE * f, const Seplos_monitor const * m)
         }
       }
     }
+    if ( m->has_bit_alarm ) {
+      for ( int i = 0; i < (sizeof(m->bit_alarm) / sizeof(*m->bit_alarm)); i++ ) {
+        uint32_t value = m->bit_alarm[i];
+        if ( value != 0 ) {
+          for ( int j = 0; j < 32; j++ ) {
+            const uint32_t mask = 1 << j;
+            if ( (value & mask) != 0 ) {
+              fprintf(f, "Alarm: %s.\n", seplos_bit_alarm_names[(i * 32) + j]);
+            }
+          }
+        }
+      }
+    }
   }
   else {
     fprintf(f, "No Alarms.\n");
   }
+
+  fprintf(f, "\nVoltage:          %.2f V\n", m->total_battery_voltage);
+  fprintf(f, "Current:          %.2f A\n", m->charge_discharge_current);
+  fprintf(f, "State of charge:  %.0f\%\n", m->state_of_charge);
+
+  fprintf(f, "Temperatures:     %.0f - %.0f C, %.0f - %.0f F\n",
+   m->lowest_temperature,
+   m->highest_temperature,
+   farenheit(m->lowest_temperature),
+   farenheit(m->highest_temperature));
+
+  fprintf(f, "Port voltage:     %.2f V\n", m->port_voltage);
+  fprintf(f, "Battery capacity: %.2f AH\n", m->battery_capacity);
+  fprintf(f, "Rated capacity:   %.2f AH\n", m->rated_capacity);
+  fprintf(f, "State of health:  %.0f\%\n", m->state_of_health);
+  fprintf(f, "Cycles:           %d\n", m->number_of_cycles);
+
+  fprintf(f, "\nBattery Cell State:\n\n");
+  cell_state_text(f, m, 0);
+  fprintf(f, "\n");
+  cell_state_text(f, m, 8);
+  fprintf(f, "\n");
 }
 
 int
