@@ -787,71 +787,109 @@ seplos_open(const char * serial_device)
 void
 seplos_text(FILE * f, const Seplos_monitor const * m)
 {
-  bool	got_alarm = false;
-  bool  alarm_test = false;
+  if ( m->has_alarm ) {
+    fprintf(f, "!!! ALARM !!! - The battery indicates an alarm state.\n");
+    fprintf(f, "Resolve this issue ASAP, or the battery may be damaged.\n");
+    if ( m->depleted )
+      fprintf(f, "!!! THE BATTERY IS DEPLETED OF CHARGE !!!\n");
+    if ( m->overcharge )
+      fprintf(f, "!!! THE BATTERY IS OVERCHARGED !!!\n");
+    if ( m->hot )
+      fprintf(f, "!!! THE BATTERY IS TOO HOT !!!\n");
+    if ( m->cold )
+      fprintf(f, "!!! THE BATTERY IS TOO COLD !!!\n");
+    if ( m->other_or_undocumented_alarm_state )
+      fprintf(f, "!!! The battery indicates an \"other\" or undocumented alarm state. !!!\n");
 
-  if ( alarm_test ) {
-    fprintf(f, "!!! ALARM !!! - There is a an issue with one of the battery cells.\n");
-    fprintf(f, "Resolve this immediately, it can damage the battery.\n");
-    for ( unsigned int i = 0; i < SEPLOS_N_CELLS; i++ ) {
-      uint8_t value = m->cell_alarm[i];
+    if ( m->has_voltage_or_current_alarm ) {
+      if ( m->total_battery_voltage_alarm ) {
+        const char * s = "undefined voltage alarm state.";
   
-      if ( value != NORMAL ) {
-        const char * s = "undefined alarm state.";
-  
-        switch ( value ) {
-        case 1:
+        switch ( m->total_battery_voltage_alarm ) {
+        case LOW_LIMIT_HIT:
           s = "exhausted: voltage was depleted below the lower limit.";
           break;
-        case 2:
+        case HIGH_LIMIT_HIT:
           s = "overcharged: voltage has exceeded the upper limit.";
           break;
-        case 0xF0:
-          s = "controller reports \"other\" error state.\n";
+        case OTHER_ALARM:
+          s = "controller reports \"other\" voltage alarm state.\n";
           break;
         }
-         
-        fprintf(f, "Cell %d: %s\n", i, s);
+
+        fprintf(f, "\nTotal battery voltage: %s\n", s);
       }
-    }
-    fprintf(f, "\n");
-  }
 
-  bool high_temperature = false;
-  bool low_temperature = false;
-  alarm_test = false;
-
-  if ( alarm_test ) {
-    fprintf(f, "!!! ALARM !!! - The battery temperature is out of bounds.\n");
-    if ( high_temperature )
-      fprintf(f, "High temperature! Resolve this immediately, it can damage the battery.\n");
-    else if ( low_temperature )
-      fprintf(f, "Low temperature! The battery will not charge, and will not provide much current.\n");
-
-    for ( unsigned int i = 0; i < SEPLOS_N_TEMPERATURES; i++ ) {
-      uint8_t value = m->temperature_alarm[i];
-
-      if ( value != NORMAL ) {
-        fprintf(f, "%s: \n", seplos_temperature_names[i]);
-        const char * s = "undefined temperature state.";
- 
-        switch ( value ) {
-        case 1:
-          s = "too cold: below the lower limit.";
+      if ( m->charge_discharge_current_alarm ) {
+        const char * s = "Undefined charge or discharge current alarm state.";
+  
+        switch ( m->charge_discharge_current_alarm ) {
+        case LOW_LIMIT_HIT:
+          s = "Discharge current exceeded the battery's limit.";
           break;
-        case 2:
-          s = "too hot: above the upper limit.";
+        case HIGH_LIMIT_HIT:
+          s = "Charge current exceeded the battery's limit.";
           break;
-        case 0xF0:
-          s = "controller reports \"other\" error state.\n";
+        case OTHER_ALARM:
+          s = "Controller reports \"other\" charge or discharge alarm state.\n";
+          break;
         }
-        
-        fprintf(f, "Cell %d: %s\n", s);
+
+        fprintf(f, "%s\n", s);
       }
     }
-    fprintf(f, "\n");
+
+    if ( m->has_cell_alarm ) {
+      fprintf(f, "\nThe battery indicates an issue with one or more of the cells:\n");
+      for ( unsigned int i = 0; i < SEPLOS_N_CELLS; i++ ) {
+        uint8_t value = m->cell_alarm[i];
+    
+        if ( value != NORMAL ) {
+          const char * s = "undefined cell alarm state.";
+    
+          switch ( value ) {
+          case LOW_LIMIT_HIT:
+            s = "exhausted: voltage was depleted below the lower limit.";
+            break;
+          case HIGH_LIMIT_HIT:
+            s = "overcharged: voltage has exceeded the upper limit.";
+            break;
+          case OTHER_ALARM:
+            s = "controller reports \"other\" cell alarm state.\n";
+            break;
+          }
+           
+          fprintf(f, "Cell %d: %s\n", i, s);
+        }
+      }
+      fprintf(f, "\n");
+    }
+
+    if ( m->temperature_alarm ) {
+      fprintf(f, "\nThe battery temperature is out of bounds:\n");
+
+      for ( unsigned int i = 0; i < SEPLOS_N_TEMPERATURES; i++ ) {
+        uint8_t value = m->temperature_alarm[i];
+  
+        if ( value != NORMAL ) {
+          fprintf(f, "%s: \n", seplos_temperature_names[i]);
+          const char * s = "undefined temperature state.";
+   
+          switch ( value ) {
+          case LOW_LIMIT_HIT:
+            s = "too cold: below the lower limit.";
+            break;
+          case HIGH_LIMIT_HIT:
+            s = "too hot: above the upper limit.";
+            break;
+          case OTHER_ALARM:
+            s = "controller reports \"other\" temperature state.\n";
+          }
+          fprintf(f, "Cell %d: %s\n", s);
+        }
+      }
+    }
   }
-  alarm_test = false;
 }
 
 int
