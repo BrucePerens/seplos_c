@@ -1,6 +1,13 @@
 # seplos_c
 C library and tools for SEPLOS BMS (Battery Management System) using their protocol 2.0
 
+The software currently monitors all of the battery alarms and status, and emits
+a monitoring page to a text output. To be done: continuous monitoring with email
+for alarms and web output.
+
+I've only tested this with one battery, and I've not seen any alarms on that battery,
+so the alarm code may have issues.
+
 > **Warning**
 > 
 > Please read the legal disclaimer in the file LICENSE. This section does not
