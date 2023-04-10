@@ -19,6 +19,9 @@
  * Please read the warnings in the README file carefully and completely.
  *
  * Limitations:
+ * * So far, I have only tested this with one SEPLOS POLO rack-mounted
+ *   battery, which I bought from trophybattery.com
+ *
  * * Many of the states have not been tested. I probably can't test them without
  *   writing a battery simulator.
  *
@@ -276,14 +279,24 @@ typedef struct _Seplos_monitor {
   bool		hot; /* One of the temperature sensors is too hot. */
 
   /*
+   * The lowest temperature reported by the 6 temperature sensors.
+   */
+  float		lowest_temperature;
+
+  /*
    * The highest temperature reported by the 6 temperature sensors.
    */
   float		highest_temperature;
 
   /*
-   * The highest temperature reported by the 6 temperature sensors.
+   * The lowest cell voltage reported.
    */
-  float		lowest_temperature;
+  float		lowest_cell_voltage;
+
+  /*
+   * The highest cell voltage reported.
+   */
+  float		highest_cell_voltage;
 
   unsigned int	number_of_cells;
   float		charge_discharge_current;
@@ -658,13 +671,21 @@ seplos_monitor(int fd, unsigned int address, unsigned int pack, Seplos_monitor *
 
   m->number_of_cells = hex2b(t->number_of_cells, &invalid);
 
+  m->lowest_cell_voltage = 1000.0;
+  m->highest_cell_voltage = -1000.0;
   for ( int i = 0; i < 16; i++ ) {
-    m->cell_voltage[i] = hex4b(t->cell_voltage[i], &invalid) / 1000.0;
+    const float value = hex4b(t->cell_voltage[i], &invalid) / 1000.0;
+    m->cell_voltage[i] = value;
+    if ( value > m->highest_cell_voltage )
+      m->highest_cell_voltage = value;
+    if ( value < m->lowest_cell_voltage )
+      m->lowest_cell_voltage = value;
   }
 
-  m->lowest_temperature = m->highest_temperature = hex4b(t->temperature[0], &invalid) / 100.0;
+  m->lowest_temperature = 1000.0;
+  m->highest_temperature = -1000.0;
   for ( int i = 0; i < 6; i++ ) {
-    const float value = hex4b(t->temperature[i], &invalid) / 100.0;
+    const float value = (hex4b(t->temperature[i], &invalid) - 2731) / 10.0;
     m->temperature[i] = value;
     if ( value > m->highest_temperature )
       m->highest_temperature = value;
@@ -855,7 +876,7 @@ cell_state_text(FILE * f, const Seplos_monitor const * m, int offset)
 }
 
 void
-seplos_text(FILE * f, const Seplos_monitor const * m)
+seplos_text(FILE * f, const Seplos_monitor const * m, bool longer)
 {
   fprintf(f, "Controller %x, battery pack %x:\n", m->controller_address, m->battery_pack_number);
   if ( m->has_alarm ) {
@@ -982,23 +1003,31 @@ seplos_text(FILE * f, const Seplos_monitor const * m)
   fprintf(f, "Current:          %.2f A\n", m->charge_discharge_current);
   fprintf(f, "State of charge:  %.0f\%\n", m->state_of_charge);
 
-  fprintf(f, "Temperatures:     %.0f - %.0f C, %.0f - %.0f F\n",
+  fprintf(f, "Temperatures:     %.0f - %.0f C, %.0f - %.0f F",
    m->lowest_temperature,
    m->highest_temperature,
    farenheit(m->lowest_temperature),
    farenheit(m->highest_temperature));
 
+  fprintf(f, " (internal heating: %s)\n", m->heating_switch ? "ON" : "off");
+
+  fprintf(f, "Cell voltages:    %.3f - %.3f V (unbalance: %.03f V)\n", m->lowest_cell_voltage, m->highest_cell_voltage, m->highest_cell_voltage - m->lowest_cell_voltage);
   fprintf(f, "Port voltage:     %.2f V\n", m->port_voltage);
   fprintf(f, "Battery capacity: %.2f AH\n", m->battery_capacity);
   fprintf(f, "Rated capacity:   %.2f AH\n", m->rated_capacity);
   fprintf(f, "State of health:  %.0f\%\n", m->state_of_health);
   fprintf(f, "Cycles:           %d\n", m->number_of_cycles);
 
-  fprintf(f, "\nBattery Cell State:\n\n");
-  cell_state_text(f, m, 0);
-  fprintf(f, "\n");
-  cell_state_text(f, m, 8);
-  fprintf(f, "\n");
+  if ( longer ) {
+    fprintf(f, "\nBattery Cell State:\n\n");
+    cell_state_text(f, m, 0);
+    fprintf(f, "\n");
+    cell_state_text(f, m, 8);
+    fprintf(f, "\n");
+  
+    fprintf(f, "Ambient temperature:           %.0f C, %.0f F\n", m->temperature[4], farenheit(m->temperature[4]));
+    fprintf(f, "Power electronics temperature: %.0f C, %.0f F\n", m->temperature[5], farenheit(m->temperature[5]));
+  }
 }
 
 int
@@ -1011,6 +1040,6 @@ main(int argc, char * * argv)
     return 1;
 
   seplos_monitor(fd, 0, 0x01, &m);
-  seplos_text(stdout, &m);
+  seplos_text(stdout, &m, false);
   return 0;
 }
