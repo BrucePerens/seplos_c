@@ -87,7 +87,7 @@ _sp_bms_command(
     return -1;
   }
 
-  if ( length_checksum(r.length & 0x0fff) != (r.length & 0xf000) ) {
+  if ( _sp_length_checksum(r.length & 0x0fff) != (r.length & 0xf000) ) {
     _sp_error("Length code incorrect.");
     return -1; 
   }
@@ -95,7 +95,7 @@ _sp_bms_command(
   r.length &= 0x0fff;
   
   if ( r.length > 0 ) {
-    ret = read_serial(fd, &(result->info[5]), r.length);
+    ret = _sp_read_serial(fd, &(result->info[5]), r.length);
     if ( ret != r.length ) {
       _sp_error("Info read: %s\n", strerror(errno));
       return -1;
@@ -111,7 +111,7 @@ _sp_bms_command(
   }
 
   checksum = _sp_hex4b(&(result->info[r.length]), &invalid);
-  if ( invalid || checksum != overall_checksum(result->version, r.length + 12) ) {
+  if ( invalid || checksum != _sp_overall_checksum(result->version, r.length + 12) ) {
     _sp_error("Checksum mismatch.\n");
     return -1;
   }

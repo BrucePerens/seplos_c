@@ -1,5 +1,6 @@
-#include "./internal.h"
+#include "./seplos_cmd.h"
 #include <stdio.h>
+#include "seplos.h"
 
 int
 main(int argc, char * * argv)

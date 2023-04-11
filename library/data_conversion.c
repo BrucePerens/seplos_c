@@ -48,14 +48,14 @@ _sp_hex1b(uint8_t c, bool * invalid)
 uint8_t
 _sp_hex2b(const char ascii[2], bool * invalid)
 {
-  return (hex1b(ascii[0], invalid) << 4) | hex1b(ascii[1], invalid);
+  return (_sp_hex1b(ascii[0], invalid) << 4) | _sp_hex1b(ascii[1], invalid);
 }
 
 uint16_t
 _sp_hex4b(const char ascii[4], bool * invalid)
 {
-  return (hex1b(ascii[0], invalid) << 12) | (hex1b(ascii[1], invalid) << 8) | \
-   (hex1b(ascii[2], invalid) << 4) | hex1b(ascii[3], invalid);
+  return (_sp_hex1b(ascii[0], invalid) << 12) | (_sp_hex1b(ascii[1], invalid) << 8) | \
+   (_sp_hex1b(ascii[2], invalid) << 4) | _sp_hex1b(ascii[3], invalid);
 }
 
 unsigned int

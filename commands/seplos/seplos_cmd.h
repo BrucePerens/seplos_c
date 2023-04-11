@@ -1,3 +1,4 @@
+#include <stdbool.h>
 #include <argp.h>
 
 extern const struct argp	argp;
