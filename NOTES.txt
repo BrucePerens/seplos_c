@@ -1,0 +1,23 @@
+ * Although the SEPLOS document refers to this as a Modbus-ASCII protocol, it isn't
+ * one. They're confusing the Modbus-ASCII _protocol_, which they don't use, with the
+ * RS-485 _transport_, which they use. It seems common to confuse the two. This is more
+ * properly called an ASCII-over-RS-485 protocol. Modbus-ASCII packets start with ':'
+ * rather than the '~' used by SEPLOS, and the packet format is entirely different.
+ *
+ * WARNING:
+ * The battery is a high-energy device. It's dangerous!
+ * Please read the warnings in the README file carefully and completely.
+ *
+ * Limitations:
+ * * So far, I have only tested this with one SEPLOS POLO rack-mounted
+ *   battery, which I bought from trophybattery.com
+ *
+ * * Many of the states have not been tested. I probably can't test them without
+ *   writing a battery simulator.
+ *
+ * * I haven't tested this with a second battery connected to the first.
+ * * At this writing, I've not installed the battery where the charger is. Thus
+ *   some issues of what is a normal vs. alarm condition, and how the numeric
+ *   conversions actually work, will wait until I have the battery installed at
+ *   my remote site.
+ *

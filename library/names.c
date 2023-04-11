@@ -1,0 +1,85 @@
+#include "./seplos.h"
+
+const char const * seplos_bit_alarm_names[SEPLOS_N_BIT_ALARMS] = {
+  /* Alarm event 1 */
+  "Voltage sensor fault",
+  "Temperature sensor fault",
+  "Current sensor fault",
+  "Key switch fault",
+  "Cell voltage dropout fault",
+  "Charge switch fault",
+  "Discharge switch fault",
+  "Current-limit switch fault",
+  /* Alarm event 2 */
+  "Monomer high-voltage alarm",
+  "Monomer overvoltage protection",
+  "Monomer low-voltage alarm",
+  "Monomer under-voltage protection",
+  "High voltage alarm for total voltage",
+  "Overvoltage protection for total voltage",
+  "Low voltage alarm for total voltage",
+  "Under voltage protection for total voltage",
+  /* Alarm event 3 */
+  "Charge high-temperature alarm",
+  "Charge over-temperature protection",
+  "Charge low-temperature alarm",
+  "Charge under-temperature protection",
+  "Discharge high-temperature alarm",
+  "Discharge over-temperature protection",
+  "Discharge low-temperature alarm",
+  "Discharge under-temperature protection",
+  /* Alarm event 4 */
+  "Environment high-temperature alarm",
+  "Environment over-temperature protection",
+  "Environment low-temperature alarm",
+  "Environment under-temperature protection",
+  "Power over-temperature protection",
+  "Power high-temperature alarm",
+  "Cell low-temperature heating",
+  0,
+  /* Alarm event 5 */
+  "Charge over-current alarm",
+  "Charge over-current protection",
+  "Discharge over-current alarm",
+  "Discharge over-current protection",
+  "Transient over-current protection",
+  "Output short-circuit protection",
+  "Transient over-current lockout",
+  "Output short-circuit lockout",
+  /* Alarm event 6 */
+  "Charge high-voltage protection",
+  "Intermittent recharge waiting",
+  "Residual capacity alarm",
+  "Residual capacity protection",
+  "Cell low-voltage charging prohibition",
+  "Output reverse-polarity protection",
+  "Output connection fault",
+  0,
+  /* Alarm Event 7 */
+  0,
+  0,
+  0,
+  0,
+  "Automatic charging waiting",
+  "Manual charging waiting",
+  0,
+  0,
+  /* Alarm Event 8 */
+  "EEPROM storage fault",
+  "Real Time Clock error",
+  "Voltage calibration not performed",
+  "Current calibration not performed",
+  "Zero calibration not performed",
+  0,
+  0,
+  0,
+};
+
+const char const * seplos_temperature_names[SEPLOS_N_TEMPERATURES] = {
+  "Cell temperature 1",
+  "Cell temperature 2",
+  "Cell temperature 3",
+  "Cell temperature 4",
+  "Environment temperature",
+  "Power temperature"
+};
