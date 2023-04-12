@@ -186,4 +186,5 @@ extern int		seplos_data(seplos_device fd, unsigned int address, unsigned int pac
 extern seplos_device	seplos_open(const char * serial_device);
 extern float		seplos_protocol_version(seplos_device fd, unsigned int address);
 extern void		seplos_html(FILE * f, const SeplosData const * m, bool longer);
+extern void		seplos_json(FILE * f, const SeplosData const * m, bool longer);
 extern void		seplos_text(FILE * f, const SeplosData const * m, bool longer);

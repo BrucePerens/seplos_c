@@ -30,6 +30,7 @@ main(int argc, char * * argv)
     seplos_html(stdout, &d, arguments.longer);
     break;
   case JSON:
+    seplos_json(stdout, &d, arguments.longer);
     break;
   }
   return 0;
