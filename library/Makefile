@@ -1,5 +1,5 @@
 CFLAGS= -g
-OBJECTS= bms.o data.o data_conversion.o error.o names.o posix.o posix_open.o \
+OBJECTS= bms.o data.o data_conversion.o error.o html.o names.o posix.o posix_open.o \
  posix_read.o \
  protocol_version.o text.o
 

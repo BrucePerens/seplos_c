@@ -9,6 +9,7 @@ main(int argc, char * * argv)
   struct arguments	arguments = {};
 
   arguments.device = "/dev/ttyUSB0";
+  arguments.format = TEXT;
 
   argp_parse(&argp, argc, argv, 0, 0, &arguments);
 
@@ -20,6 +21,16 @@ main(int argc, char * * argv)
     return 1;
 
   seplos_data(fd, 0, 0x01, &d);
-  seplos_text(stdout, &d, arguments.longer);
+
+  switch ( arguments.format ) {
+  case TEXT:
+    seplos_text(stdout, &d, arguments.longer);
+    break;
+  case HTML:
+    seplos_html(stdout, &d, arguments.longer);
+    break;
+  case JSON:
+    break;
+  }
   return 0;
 }

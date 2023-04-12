@@ -1,4 +1,6 @@
 #include "./seplos_cmd.h"
+#include "internal.h"
+#include <string.h>
 
 static error_t parse_opt(int key, char *arg, struct argp_state *state);
 
@@ -13,6 +15,7 @@ static const char doc[] = \
 static const struct argp_option options[] = {
   {"device", 'd', "/dev/tty...", 0, "The serial device used to communicate with the battery."},
   {"longer", 'l', 0, 0, "More information: individual cell states, etc."},
+  {"format", 'f', "text|HTML|JSON", 0, "Format of the output: text: text file, HTML: web page, JSON: easy format for communication between programs."},
   {}
 };
 
@@ -28,6 +31,16 @@ parse_opt(int key, char *arg, struct argp_state *state)
   switch ( key ) {
   case 'd':
     arguments->device = arg;
+    break;
+  case 'f':
+    if ( ( strcmp(arg, "text") == 0 ) || ( strcmp(arg, "TEXT") == 0 ) )
+      arguments->format = TEXT;
+    else if ( ( strcmp(arg, "html") == 0 ) || ( strcmp(arg, "HTML") == 0 ) )
+      arguments->format = HTML;
+    else if ( ( strcmp(arg, "json") == 0 ) || ( strcmp(arg, "JSON") == 0 ) )
+      arguments->format = JSON;
+    else
+      argp_failure(state, 1, 0, "Parameter to --format= or -f must be \"text\", \"HTML\", or \"JSON\"");
     break;
   case 'l':
     arguments->longer = true;
