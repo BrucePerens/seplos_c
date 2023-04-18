@@ -27,7 +27,9 @@ main(int argc, char * * argv)
     seplos_text(stdout, &d, arguments.longer);
     break;
   case HTML:
+    fprintf(stdout, "<!DOCTYPE html>\n<html><head><title>SEPLOS Battery Monitor</title></head><body>\n");
     seplos_html(stdout, &d, arguments.longer);
+    fprintf(stdout, "</body></html>\n");
     break;
   case JSON:
     seplos_json(stdout, &d, arguments.longer);

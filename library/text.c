@@ -171,7 +171,7 @@ seplos_text(FILE * f, const SeplosData const * m, bool longer)
   fprintf(f, "Battery capacity: %.2f AH\n", m->battery_capacity);
   fprintf(f, "Rated capacity:   %.2f AH\n", m->rated_capacity);
   fprintf(f, "State of health:  %.0f\%\n", m->state_of_health);
-  fprintf(f, "Cycles:           %d\n", m->number_of_cycles);
+  fprintf(f, "Lifetime Cycles:  %d\n", m->number_of_cycles);
 
   if ( longer ) {
     fprintf(f, "\nBattery Cell State:\n\n");
